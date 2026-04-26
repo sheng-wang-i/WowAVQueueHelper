@@ -83,14 +83,14 @@ end
 
 local function CancelTimeout()
     if addonState.timeoutTimer then
-        addonState.timeoutTimer:Cancel()
+        addonState.timeoutTimer:Cancel()    ---@diagnostic disable-line: undefined-field
         addonState.timeoutTimer = nil
     end
 end
 
 local function StopAlertSound()
     if addonState.alertTimer then
-        addonState.alertTimer:Cancel()
+        addonState.alertTimer:Cancel()  ---@diagnostic disable-line: undefined-field
         addonState.alertTimer = nil
     end
 end
@@ -106,7 +106,7 @@ flashFrame:Hide()
 
 local function StopFlash()
     if addonState.flashTimer then
-        addonState.flashTimer:Cancel()
+        addonState.flashTimer:Cancel()  ---@diagnostic disable-line: undefined-field
         addonState.flashTimer = nil
     end
     flashFrame:Hide()
@@ -141,7 +141,7 @@ end
 
 local function ResetState()
     if addonState.stepTimer then
-        addonState.stepTimer:Cancel()
+        addonState.stepTimer:Cancel()  ---@diagnostic disable-line: undefined-field
         addonState.stepTimer = nil
     end
     CancelTimeout()

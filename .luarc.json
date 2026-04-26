@@ -1,0 +1,19 @@
+{
+  "runtime.version": "Lua 5.1",
+  "diagnostics.globals": [
+    "CreateFrame",
+    "UIParent",
+    "DEFAULT_CHAT_FRAME",
+    "C_Timer",
+    "SetBindingClick",
+    "SetBinding",
+    "UnitName",
+    "SelectGossipOption",
+    "GetGossipOptions",
+    "GetBattlefieldStatus",
+    "GetBattlefieldWinner",
+    "LeaveBattlefield",
+    "PlaySound",
+    "JoinBattlefield"
+  ]
+}

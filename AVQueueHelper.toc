@@ -1,0 +1,7 @@
+## Interface: 11503
+## Title: AVQueueHelper
+## Notes: Join AV with single key press
+## Author: AVQueueHelper
+## Version: 1.0.0
+
+AVQueueHelper.lua

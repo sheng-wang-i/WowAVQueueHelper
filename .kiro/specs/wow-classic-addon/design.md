@@ -2,7 +2,7 @@
 
 ## 概述
 
-AVQueueHelper 是一个魔兽世界经典版（WoW Classic）Lua 插件，简化奥特兰克山谷（AV）战场排队流程。由于 WoW 的受保护 API（TargetUnit、InteractUnit、JoinBattlefield）只能在硬件事件的安全执行路径中调用，插件采用"三次按键 + 键位重绑定"的架构：玩家按下 F12 三次，每次触发不同的安全按钮，依次完成选中 NPC → 交互 NPC → 加入排队。插件根据玩家阵营自动选择对应 NPC（联盟 Stormpike Emissary / 部落 Frostwolf Emissary），并在排队弹出时通过声音和屏幕闪烁提醒玩家进入战场。
+AVQueueHelper 是一个魔兽世界经典版（WoW Classic）Lua 插件，简化奥特兰克山谷（AV）战场排队流程。由于 WoW 的受保护 API（TargetUnit、InteractUnit、JoinBattlefield）只能在硬件事件的安全执行路径中调用，插件采用"三次按键 + 键位重绑定"的架构：玩家按下 F12 三次，每次触发不同的安全按钮，依次完成选中 NPC → 交互 NPC → 加入排队。插件根据玩家阵营自动选择对应 NPC（联盟 Stormpike Emissary / 部落 Frostwolf Emissary），并在排队弹出时通过声音和屏幕闪烁提醒玩家进入战场。插件提供游戏内设置面板（ESC → Interface → AddOns），允许玩家自定义日志级别和快捷键绑定，设置通过 SavedVariables 跨会话持久化。
 
 ### 设计决策
 
@@ -14,6 +14,7 @@ AVQueueHelper 是一个魔兽世界经典版（WoW Classic）Lua 插件，简化
 6. **0.2 秒步骤延迟**：仅用于 GOSSIP_SHOW 后自动选择对话选项前的短暂缓冲，确保客户端 UI 就绪。
 7. **6 秒全局超时**：防止流程因异常卡死，超时后自动清理所有状态并重置。
 8. **日志级别系统**：支持 DEBUG/INFO/WARN/ERROR 四级，通过 CONFIG.LOG_LEVEL 控制最低输出级别，方便调试和生产使用。
+9. **SavedVariables 持久化设置**：通过 .toc 文件声明 `AVQueueHelperDB`，WoW 客户端在登出时自动将该全局表序列化到磁盘。PLAYER_LOGIN 时加载已保存设置并合并默认值，避免新增字段时丢失配置。设置面板通过 `CreateFrame` + `InterfaceOptions_AddCategory` 注册到 WoW 内置 Interface Options 系统，无需额外 UI 库。
 
 ## 架构
 
@@ -52,7 +53,7 @@ flowchart TD
 
 ```
 AVQueueHelper/
-├── AVQueueHelper.toc          -- 插件描述文件（Interface 11503）
+├── AVQueueHelper.toc          -- 插件描述文件（Interface 11503, SavedVariables: AVQueueHelperDB）
 └── AVQueueHelper.lua          -- 全部插件逻辑（单文件）
 ```
 
@@ -164,6 +165,89 @@ end)
 - `AVQueueHelperFlashFrame` — TOOLTIP 层级全屏 Frame
 - 内含一个红色 `SetColorTexture(1, 0, 0, 0.3)` 纹理
 
+### 6. 设置面板（Settings Panel）
+
+通过 WoW 内置 Interface Options 系统提供游戏内设置界面，玩家可通过 ESC → Interface → AddOns → AVQueueHelper 访问。
+
+#### 面板结构
+
+```lua
+local settingsPanel = CreateFrame("Frame", "AVQueueHelperSettingsPanel", UIParent)
+settingsPanel.name = "AVQueueHelper"
+InterfaceOptions_AddCategory(settingsPanel)
+```
+
+#### 日志级别下拉菜单
+
+使用 `CreateFrame("Frame", name, parent, "UIDropDownMenuTemplate")` 创建下拉菜单：
+
+- 选项：DEBUG、INFO、WARN、ERROR
+- 默认值：INFO
+- 变更回调：立即更新 `CONFIG.LOG_LEVEL`，同步写入 `AVQueueHelperDB.logLevel`
+
+```lua
+-- 下拉菜单初始化函数
+local function InitLogLevelDropdown(self, level)
+    local levels = {"DEBUG", "INFO", "WARN", "ERROR"}
+    for _, name in ipairs(levels) do
+        local info = UIDropDownMenu_CreateInfo()
+        info.text = name
+        info.value = LOG_LEVEL[name]
+        info.func = function(item)
+            CONFIG.LOG_LEVEL = item.value
+            AVQueueHelperDB.logLevel = item.value
+            UIDropDownMenu_SetSelectedValue(self, item.value)
+        end
+        UIDropDownMenu_AddButton(info, level)
+    end
+end
+```
+
+#### 快捷键绑定输入框
+
+使用 WoW 原生按键捕获机制，玩家点击输入框后按下目标按键完成绑定：
+
+- 显示当前绑定按键文本（默认 "F12"）
+- 点击后进入捕获模式，监听 `OnKeyDown` 事件
+- 捕获到按键后：
+  1. 调用 `SetBinding(oldKey)` 解除旧绑定
+  2. 调用 `SetBindingClick(newKey, currentButton)` 绑定新按键到当前阶段对应的安全按钮
+  3. 更新 `CONFIG.KEYBIND` 为新按键
+  4. 保存到 `AVQueueHelperDB.keybind`
+  5. 检查按键冲突：通过 `GetBindingAction(newKey)` 检测是否已被游戏内置功能占用，如有冲突则在聊天窗口输出警告
+
+```lua
+-- 快捷键绑定按钮
+local keybindButton = CreateFrame("Button", "AVQueueHelperKeybindButton", settingsPanel)
+keybindButton:SetScript("OnKeyDown", function(self, key)
+    if key == "ESCAPE" then
+        -- 取消捕获
+        self:EnableKeyboard(false)
+        return
+    end
+    local oldKey = CONFIG.KEYBIND
+    -- 检查冲突
+    local existingAction = GetBindingAction(key)
+    if existingAction and existingAction ~= "" then
+        PrintMessage("Warning: " .. key .. " is already bound to " .. existingAction, LOG_LEVEL.WARN)
+    end
+    -- 解除旧绑定，设置新绑定
+    SetBinding(oldKey)
+    CONFIG.KEYBIND = key
+    AVQueueHelperDB.keybind = key
+    SetBindingClick(key, "AVQueueHelperButton")  -- 绑定到当前阶段按钮
+    self:SetText(key)
+    self:EnableKeyboard(false)
+end)
+```
+
+#### 设计要点
+
+- **无外部 UI 库依赖**：仅使用 WoW 原生 `CreateFrame`、`UIDropDownMenuTemplate` 和 `InterfaceOptions_AddCategory`
+- **即时生效**：设置变更立即应用到 CONFIG 表，无需重载插件
+- **防御性加载**：PLAYER_LOGIN 时对 `AVQueueHelperDB` 逐字段检查并填充默认值，兼容版本升级新增字段的场景
+- **按键冲突检测**：通过 `GetBindingAction()` 查询按键是否已被占用，仅警告不阻止（玩家可能有意覆盖）
+
 ## 数据模型
 
 ### 流程状态枚举
@@ -212,6 +296,42 @@ local CONFIG = {
 }
 ```
 
+### SavedVariables 持久化数据
+
+```lua
+-- .toc 文件中声明：
+-- ## SavedVariables: AVQueueHelperDB
+
+-- AVQueueHelperDB 结构（全局表，由 WoW 客户端自动持久化）
+AVQueueHelperDB = {
+    logLevel = 2,      -- LOG_LEVEL.INFO（默认值）
+    keybind  = "F12",  -- 默认快捷键
+}
+```
+
+### 默认设置与加载逻辑
+
+```lua
+local DEFAULTS = {
+    logLevel = LOG_LEVEL.INFO,
+    keybind  = "F12",
+}
+
+-- PLAYER_LOGIN 时执行：
+local function LoadSavedSettings()
+    if not AVQueueHelperDB then
+        AVQueueHelperDB = {}
+    end
+    for key, default in pairs(DEFAULTS) do
+        if AVQueueHelperDB[key] == nil then
+            AVQueueHelperDB[key] = default
+        end
+    end
+    CONFIG.LOG_LEVEL = AVQueueHelperDB.logLevel
+    CONFIG.KEYBIND   = AVQueueHelperDB.keybind
+end
+```
+
 ### 状态转换表
 
 | 当前状态 | 触发条件 | 下一状态 | 动作 |
@@ -231,3 +351,85 @@ local CONFIG = {
 | QUEUING | 超时 | IDLE | ResetState |
 | READY | F12 按下 (EnterButton) | IDLE | 提示进入战场，ResetState |
 | READY | UPDATE_BATTLEFIELD_STATUS + 无 confirm | IDLE | 提示已过期，ResetState |
+
+
+## 正确性属性
+
+*属性（Property）是在系统所有有效执行中都应成立的特征或行为——本质上是对系统应做什么的形式化陈述。属性是人类可读规格说明与机器可验证正确性保证之间的桥梁。*
+
+### 属性 1：设置加载与默认值合并
+
+*对于任意* AVQueueHelperDB 状态（nil、空表、部分字段缺失、完整字段），执行 LoadSavedSettings() 后，CONFIG.LOG_LEVEL 应为有效的日志级别值（1-4），CONFIG.KEYBIND 应为非空字符串，且 AVQueueHelperDB 中所有必需字段（logLevel、keybind）均应存在且具有有效值。
+
+**验证需求：需求 9.2, 9.8**
+
+### 属性 2：日志级别变更持久化
+
+*对于任意* 有效的日志级别值（DEBUG/INFO/WARN/ERROR），在设置面板中选择该级别后，CONFIG.LOG_LEVEL 应等于所选值，且 AVQueueHelperDB.logLevel 应等于所选值。
+
+**验证需求：需求 9.5**
+
+### 属性 3：快捷键变更持久化
+
+*对于任意* 有效的按键名称，在设置面板中更改快捷键后，CONFIG.KEYBIND 应等于新按键值，AVQueueHelperDB.keybind 应等于新按键值，且新按键应绑定到当前阶段对应的安全按钮。
+
+**验证需求：需求 9.7**
+
+### 属性 4：快捷键冲突检测
+
+*对于任意* 按键，若该按键已被游戏内置功能占用（GetBindingAction 返回非空字符串），则更改快捷键到该按键时应产生警告消息；若该按键未被占用，则不应产生冲突警告。
+
+**验证需求：需求 9.9**
+
+## 错误处理
+
+### 设置面板相关错误处理
+
+| 场景 | 处理方式 |
+|------|---------|
+| AVQueueHelperDB 为 nil（首次安装） | 创建空表并填充所有默认值 |
+| AVQueueHelperDB 缺少个别字段（版本升级） | 仅填充缺失字段，保留已有设置 |
+| AVQueueHelperDB.logLevel 值无效 | 回退到默认值 LOG_LEVEL.INFO |
+| AVQueueHelperDB.keybind 值为空或 nil | 回退到默认值 "F12" |
+| 快捷键与游戏内置绑定冲突 | 输出 WARN 级别警告，但不阻止绑定（玩家可能有意覆盖） |
+| 玩家在快捷键捕获模式按 ESC | 取消捕获，保持原有绑定不变 |
+| 流程进行中更改快捷键 | 应在 IDLE 状态下才允许更改，或更改后将新按键绑定到当前阶段对应的按钮 |
+
+### 已有错误处理（保持不变）
+
+- 阵营无法识别：警告并默认联盟 NPC
+- NPC 未找到：警告并重置状态
+- 流程超时：6 秒后自动清理并重置
+- 战场确认过期：提示并重置
+- 过期定时器回调：generation counter 机制阻止执行
+
+## 测试策略
+
+### 测试方法
+
+由于 WoW Classic 插件运行在游戏客户端内，无法使用标准的自动化测试框架。测试策略采用以下方式：
+
+#### 手动功能测试
+
+- 在游戏内通过 `/reload` 重载插件验证功能
+- 验证设置面板可通过 ESC → Interface → AddOns → AVQueueHelper 访问
+- 验证日志级别下拉菜单包含四个选项且默认为 INFO
+- 验证快捷键输入框显示当前绑定按键
+- 验证更改设置后重新登录设置仍保留
+
+#### 属性测试（Property-Based Testing）
+
+由于 WoW 插件的运行环境限制（无法在游戏外运行 Lua 测试框架），属性测试以设计规格形式记录，在手动测试中验证：
+
+- **属性 1 验证**：删除 SavedVariables 文件后登录，确认默认值正确加载；手动编辑 SavedVariables 文件移除部分字段后登录，确认缺失字段被填充
+- **属性 2 验证**：在设置面板更改日志级别，立即测试不同级别的消息是否按预期过滤；重新登录确认设置保留
+- **属性 3 验证**：在设置面板更改快捷键，验证新按键触发排队流程；重新登录确认设置保留
+- **属性 4 验证**：将快捷键设置为已知的游戏内置绑定（如 "M" 地图键），确认聊天窗口出现冲突警告
+
+#### 边界条件测试
+
+- AVQueueHelperDB 为 nil（首次安装场景）
+- AVQueueHelperDB 为空表
+- AVQueueHelperDB 包含未知字段（前向兼容）
+- 快捷键设置为特殊键（如修饰键组合）
+- 在排队流程进行中打开设置面板

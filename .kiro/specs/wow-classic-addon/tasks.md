@@ -101,6 +101,53 @@ Implement a WoW Classic Lua addon that streamlines Alterac Valley battleground q
     - Unregister PLAYER_LOGIN after first run
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 2.1, 2.3, 2.4_
 
+- [ ] 8. 添加 SavedVariables 声明与设置加载逻辑
+  - [ ] 8.1 在 AVQueueHelper.toc 中添加 SavedVariables 声明
+    - 添加 `## SavedVariables: AVQueueHelperDB` 行到 .toc 文件
+    - _Requirements: 9.1_
+
+  - [ ] 8.2 实现默认设置与 LoadSavedSettings 函数
+    - 在 AVQueueHelper.lua 中定义 DEFAULTS 表（logLevel = LOG_LEVEL.INFO, keybind = "F12"）
+    - 实现 LoadSavedSettings()：检查 AVQueueHelperDB 是否为 nil，逐字段合并默认值，将已保存值应用到 CONFIG.LOG_LEVEL 和 CONFIG.KEYBIND
+    - 在 PLAYER_LOGIN 事件处理器中调用 LoadSavedSettings()，确保在设置 targetBtn macrotext 和 SetBindingClick 之前执行，使用已保存的 KEYBIND 而非硬编码 F12
+    - _Requirements: 9.2, 9.8_
+
+- [ ] 9. 实现设置面板框架与日志级别下拉菜单
+  - [ ] 9.1 创建设置面板并注册到 Interface Options
+    - 使用 CreateFrame("Frame", "AVQueueHelperSettingsPanel", UIParent) 创建面板
+    - 设置 settingsPanel.name = "AVQueueHelper"
+    - 调用 InterfaceOptions_AddCategory(settingsPanel) 注册到 ESC → Interface → AddOns
+    - 添加面板标题文本
+    - _Requirements: 9.3_
+
+  - [ ] 9.2 实现日志级别下拉菜单
+    - 使用 CreateFrame("Frame", name, settingsPanel, "UIDropDownMenuTemplate") 创建下拉菜单
+    - 实现初始化函数，添加 DEBUG、INFO、WARN、ERROR 四个选项
+    - 选项变更回调：立即更新 CONFIG.LOG_LEVEL，同步写入 AVQueueHelperDB.logLevel，更新下拉菜单选中状态
+    - 初始化时从 CONFIG.LOG_LEVEL 读取当前值设置默认选中项
+    - 添加下拉菜单标签文本
+    - _Requirements: 9.4, 9.5_
+
+- [ ] 10. 实现快捷键绑定输入框与冲突检测
+  - [ ] 10.1 实现快捷键捕获按钮
+    - 创建 Button 框体，显示当前绑定按键文本（从 CONFIG.KEYBIND 读取）
+    - 点击按钮后调用 EnableKeyboard(true) 进入按键捕获模式，更新按钮文本提示"按下新按键..."
+    - 设置 OnKeyDown 脚本：按 ESCAPE 取消捕获并恢复原文本；其他按键执行绑定变更
+    - 绑定变更逻辑：调用 SetBinding(oldKey) 解除旧绑定，更新 CONFIG.KEYBIND，保存到 AVQueueHelperDB.keybind，调用 SetBindingClick(newKey, "AVQueueHelperButton") 绑定新按键，更新按钮显示文本，调用 EnableKeyboard(false) 退出捕获模式
+    - 添加快捷键输入框标签文本
+    - _Requirements: 9.6, 9.7_
+
+  - [ ] 10.2 实现快捷键冲突检测
+    - 在 OnKeyDown 绑定变更前，调用 GetBindingAction(key) 检查按键是否已被游戏内置功能占用
+    - 如果返回非空字符串，通过 PrintMessage 输出 WARN 级别警告，告知玩家按键冲突信息
+    - 冲突仅警告不阻止绑定（玩家可能有意覆盖）
+    - _Requirements: 9.9_
+
+- [ ] 11. 检查点 - 确保设置面板功能完整
+  - 确保所有代码无语法错误，如有问题请询问用户。
+  - 验证：.toc 文件包含 SavedVariables 声明、PLAYER_LOGIN 中调用 LoadSavedSettings、设置面板已注册到 InterfaceOptions、日志级别下拉菜单包含四个选项、快捷键捕获按钮可正常工作、冲突检测逻辑已实现
+  - 确保现有排队流程中所有引用 CONFIG.KEYBIND 的地方（ResetState、PostClick 等）使用动态值而非硬编码 "F12"
+
 ## Notes
 
 - All code is Lua targeting the WoW Classic client API (Interface 11503)
@@ -108,3 +155,5 @@ Implement a WoW Classic Lua addon that streamlines Alterac Valley battleground q
 - No external build tools, package managers, or test frameworks — addon runs directly in the WoW client
 - Protected API constraints require three separate hardware-event keypresses; the addon cannot fully automate the flow in a single press
 - Generation counter prevents stale timer callbacks from executing after state resets
+- 设置面板通过 WoW 原生 Interface Options 系统注册，无需额外 UI 库
+- SavedVariables 由 WoW 客户端在登出时自动序列化到磁盘，PLAYER_LOGIN 时加载并合并默认值

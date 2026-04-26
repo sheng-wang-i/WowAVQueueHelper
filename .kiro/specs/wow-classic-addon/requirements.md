@@ -2,106 +2,122 @@
 
 ## 简介
 
-本插件为魔兽世界经典版（WoW Classic）设计的战场快速排队便捷插件。玩家按下 F12 键后，插件自动完成从选中 NPC 到加入战场排队的全部流程，省去手动操作的繁琐步骤。目标 NPC 为 "Stormpike Emissary"（雷矛特使），用于奥特兰克山谷战场的排队。
+AVQueueHelper 是一个魔兽世界经典版（WoW Classic）插件，用于简化奥特兰克山谷（AV）战场排队流程。玩家通过连续按下 F12 键三次，依次完成选中 NPC → 与 NPC 交互 → 加入战场排队。插件根据玩家阵营自动选择对应的战场 NPC（联盟为 "Stormpike Emissary"，部落为 "Frostwolf Emissary"）。由于 WoW API 的安全限制，每个受保护操作必须由真实按键触发，因此流程分为三次按键完成。
 
 ## 术语表
 
 - **Addon**: 魔兽世界客户端加载的 Lua 插件，通过 WoW API 扩展游戏界面和功能
-- **Keybinding_Module**: 插件中负责注册和处理按键绑定的模块
-- **Target_Module**: 插件中负责选中指定 NPC 的模块
-- **Interact_Module**: 插件中负责与目标 NPC 交互（打开对话窗口）的模块
-- **Gossip_Module**: 插件中负责处理 NPC 对话选项的模块
-- **Queue_Module**: 插件中负责点击加入战场按钮完成排队的模块
+- **Secure_Action_Button**: WoW 中可在受保护执行路径中运行宏命令的安全按钮框体，通过 `SecureActionButtonTemplate` 创建
+- **Protected_API**: 只能在硬件事件（真实按键/点击）的安全执行路径中调用的 WoW API 函数，如 `TargetUnit`、`InteractUnit`、`JoinBattlefield`
+- **Keybind_Rebinding**: 在流程的不同阶段将 F12 键绑定到不同的安全按钮，使每次按键执行不同的受保护操作
 - **Stormpike_Emissary**: 联盟阵营的奥特兰克山谷战场排队 NPC，名称为 "Stormpike Emissary"
+- **Frostwolf_Emissary**: 部落阵营的奥特兰克山谷战场排队 NPC，名称为 "Frostwolf Emissary"
 - **Gossip_Frame**: 与 NPC 对话时弹出的对话选项窗口
 - **Battlemaster_Frame**: 战场排队确认窗口，包含 "Join Battle" 按钮
-- **Step_Delay**: 每个步骤之间的固定等待时间，设定为 2 秒，用于确保游戏客户端有足够时间响应上一步操作
-- **WoW_API**: 魔兽世界客户端提供的 Lua 编程接口，用于操作游戏内对象和界面
+- **PVP_Ready_Dialog**: 战场准备就绪时弹出的确认对话框，包含 "Enter Battle" 按钮
+- **Step_Delay**: 步骤之间的短暂等待时间（默认 0.2 秒），确保游戏客户端有时间响应
+- **Timeout**: 全局超时时间（默认 6 秒），防止流程因异常卡死
+- **Generation_Counter**: 递增计数器，用于使旧定时器回调失效，防止状态重置后的过期回调执行
+- **STATE**: 流程状态枚举，包含 IDLE、TARGETING、INTERACTING、GOSSIPING、QUEUING、READY 六个状态
+- **LOG_LEVEL**: 日志级别枚举，包含 DEBUG、INFO、WARN、ERROR 四个级别
+- **Alert_Sound**: 战场准备就绪时的循环提示音（Sound Kit ID 1018），每 3 秒播放一次
+- **Screen_Flash**: 战场准备就绪时的全屏红色闪烁效果，提醒玩家进入战场
 
 ## 需求
 
-### 需求 1：按键绑定注册
+### 需求 1：阵营自适应 NPC 选择
 
-**用户故事：** 作为玩家，我希望通过按下 F12 键触发战场排队流程，以便快速完成排队操作。
-
-#### 验收标准
-
-1. WHEN Addon 加载完成, THE Keybinding_Module SHALL 注册 F12 键作为触发战场快速排队流程的快捷键
-2. WHEN 玩家按下 F12 键, THE Keybinding_Module SHALL 启动战场排队自动化流程
-3. WHILE 战场排队流程正在执行中, THE Keybinding_Module SHALL 忽略重复的 F12 按键输入
-
-### 需求 2：自动选中目标 NPC
-
-**用户故事：** 作为玩家，我希望插件自动选中 "Stormpike Emissary" NPC，以便无需手动点击目标。
+**用户故事：** 作为玩家，我希望插件根据我的阵营自动选择正确的战场 NPC，以便联盟和部落玩家都能使用此插件。
 
 #### 验收标准
 
-1. WHEN 战场排队流程启动, THE Target_Module SHALL 执行 `/target Stormpike Emissary` 宏命令选中该 NPC
-2. WHEN 成功选中 Stormpike_Emissary, THE Target_Module SHALL 等待 Step_Delay（2 秒）后再通知 Interact_Module 继续执行下一步操作
-3. IF 未能成功选中 Stormpike_Emissary（NPC 不在附近或不存在）, THEN THE Target_Module SHALL 在聊天窗口显示错误提示信息 "未找到 Stormpike Emissary，请靠近该 NPC 后重试"
+1. WHEN 玩家登录游戏（PLAYER_LOGIN 事件触发）, THE Addon SHALL 通过 `UnitFactionGroup("player")` 检测玩家阵营
+2. WHEN 玩家为联盟阵营, THE Addon SHALL 将目标 NPC 设置为 "Stormpike Emissary"
+3. WHEN 玩家为部落阵营, THE Addon SHALL 将目标 NPC 设置为 "Frostwolf Emissary"
+4. IF 无法识别玩家阵营, THEN THE Addon SHALL 在聊天窗口显示警告信息并默认使用联盟 NPC 名称
 
-### 需求 3：自动打开 NPC 对话窗口
+### 需求 2：按键绑定与安全按钮架构
 
-**用户故事：** 作为玩家，我希望插件自动与选中的 NPC 交互打开对话窗口，以便无需手动右键点击 NPC。
-
-#### 验收标准
-
-1. WHEN Target_Module 完成 Step_Delay 等待后, THE Interact_Module SHALL 调用 InteractUnit 函数与目标 NPC 交互
-2. WHEN InteractUnit 调用成功且 Gossip_Frame 打开, THE Interact_Module SHALL 等待 Step_Delay（2 秒）后再通知 Gossip_Module 继续执行下一步操作
-3. IF InteractUnit 调用失败（目标超出交互距离或目标丢失）, THEN THE Interact_Module SHALL 在聊天窗口显示错误提示信息 "无法与 NPC 交互，请靠近后重试"
-
-### 需求 4：自动选择对话选项
-
-**用户故事：** 作为玩家，我希望插件自动选择 Gossip 对话的第一个选项，以便快速进入战场排队界面。
+**用户故事：** 作为玩家，我希望通过按下 F12 键触发战场排队流程，每次按键执行流程中的下一步操作。
 
 #### 验收标准
 
-1. WHEN Interact_Module 完成 Step_Delay 等待后且 Gossip_Frame 打开且对话选项可用, THE Gossip_Module SHALL 自动选择第一个 Gossip 对话选项
-2. WHEN 第一个对话选项被选择后, THE Gossip_Module SHALL 等待 Step_Delay（2 秒）后再通知 Queue_Module 继续执行下一步操作
-3. IF Gossip_Frame 打开但没有可用的对话选项, THEN THE Gossip_Module SHALL 在聊天窗口显示错误提示信息 "对话窗口中没有可用选项"
+1. WHEN 玩家登录游戏, THE Addon SHALL 将 F12 键绑定到初始目标按钮（AVQueueHelperButton）
+2. THE Addon SHALL 创建以下安全按钮：AVQueueHelperButton（选中 NPC）、AVQueueHelperJoinButton（加入战场排队）、AVQueueHelperEnterButton（进入战场）
+3. WHEN 流程推进到不同阶段, THE Addon SHALL 通过 `SetBindingClick` 将 F12 重新绑定到对应的安全按钮
+4. WHEN 流程完成、超时或失败, THE Addon SHALL 将 F12 重新绑定回初始目标按钮
 
-### 需求 5：自动加入战场排队
+### 需求 3：三步按键排队流程
 
-**用户故事：** 作为玩家，我希望插件自动点击 "Join Battle" 按钮完成战场排队，以便一键完成整个排队流程。
-
-#### 验收标准
-
-1. WHEN Gossip_Module 完成 Step_Delay 等待后且 Battlemaster_Frame 打开且 "Join Battle" 按钮可用, THE Queue_Module SHALL 自动点击 "Join Battle" 按钮完成战场排队
-2. WHEN 战场排队成功完成, THE Queue_Module SHALL 在聊天窗口显示确认信息 "已成功加入战场排队"
-3. IF "Join Battle" 按钮不可用或 Battlemaster_Frame 未正确打开, THEN THE Queue_Module SHALL 在聊天窗口显示错误提示信息 "无法加入战场排队，请手动操作"
-
-### 需求 6：流程状态管理
-
-**用户故事：** 作为玩家，我希望插件能正确管理排队流程的状态，以便在异常情况下自动恢复。
+**用户故事：** 作为玩家，我希望通过连续按下 F12 三次完成从选中 NPC 到加入排队的全部流程。
 
 #### 验收标准
 
-1. THE Addon SHALL 维护一个流程状态变量，记录当前执行到的步骤（空闲、选中目标、交互中、选择对话、排队中）
-2. WHEN 流程中任意步骤失败, THE Addon SHALL 将流程状态重置为空闲状态，允许玩家重新按下 F12 触发流程
-3. WHEN 流程成功完成排队, THE Addon SHALL 将流程状态重置为空闲状态
-4. IF 流程在 15 秒内未能完成所有步骤（含 3 次 Step_Delay 共计 6 秒）, THEN THE Addon SHALL 超时并将流程状态重置为空闲状态，同时在聊天窗口显示提示信息 "排队流程超时，请重试"
+1. WHEN 玩家第一次按下 F12 且状态为 IDLE, THE Addon SHALL 执行 `/target <NPC名称>` 宏命令选中战场 NPC
+2. WHEN NPC 选中成功, THE Addon SHALL 将 F12 重新绑定到 INTERACTTARGET 操作，将状态设置为 INTERACTING，并在聊天窗口提示玩家再次按下 F12 进行交互
+3. IF NPC 未能成功选中（NPC 不在附近）, THEN THE Addon SHALL 在聊天窗口显示警告信息并重置状态为 IDLE
+4. WHEN 玩家第二次按下 F12（INTERACTTARGET）, THE Addon SHALL 与目标 NPC 交互打开对话窗口；GOSSIP_SHOW 事件触发后，插件自动在 Step_Delay 后选择第一个对话选项
+5. WHEN BATTLEFIELDS_SHOW 事件触发且状态为 GOSSIPING, THE Addon SHALL 将 F12 重新绑定到 AVQueueHelperJoinButton，将状态设置为 QUEUING，并在聊天窗口提示玩家按下 F12 加入排队
+6. WHEN 玩家第三次按下 F12, THE Addon SHALL 通过 `/click BattlefieldFrameJoinButton` 点击加入战场按钮，在聊天窗口显示排队完成信息，并重置状态为 IDLE
+
+### 需求 4：战场状态检查与处理
+
+**用户故事：** 作为玩家，我希望插件在我按下 F12 时检查当前战场状态，避免重复排队并在战场结束时自动离开。
+
+#### 验收标准
+
+1. WHEN 玩家按下 F12 且状态为 IDLE, THE Addon SHALL 遍历检查所有战场槽位（1-3）的状态
+2. IF 任一战场状态为 "queued"（已在排队中）, THEN THE Addon SHALL 在聊天窗口显示 "已在排队中，请等待" 的提示信息，并不启动排队流程
+3. IF 任一战场状态为 "active"（正在战场中）且战场已结束（`GetBattlefieldWinner()` 返回非 nil）, THEN THE Addon SHALL 调用 `LeaveBattlefield()` 自动离开战场并在聊天窗口显示提示
+4. IF 任一战场状态为 "active" 且战场未结束, THEN THE Addon SHALL 在聊天窗口显示 "战场仍在进行中" 的提示信息
+
+### 需求 5：战场准备就绪提醒（READY 状态）
+
+**用户故事：** 作为玩家，我希望当战场排队弹出时，插件通过声音和视觉效果提醒我，并允许我按 F12 直接进入战场。
+
+#### 验收标准
+
+1. WHEN UPDATE_BATTLEFIELD_STATUS 事件触发且状态为 IDLE 且任一战场状态为 "confirm", THE Addon SHALL 将状态设置为 READY
+2. WHEN 进入 READY 状态, THE Addon SHALL 将 F12 重新绑定到 AVQueueHelperEnterButton
+3. WHEN 进入 READY 状态, THE Addon SHALL 立即播放 Alert_Sound（Sound Kit ID 1018），并启动每 3 秒重复播放的定时器
+4. WHEN 进入 READY 状态, THE Addon SHALL 启动全屏红色半透明闪烁效果（每 0.5 秒切换显示/隐藏）
+5. WHEN 进入 READY 状态, THE Addon SHALL 在聊天窗口显示 "战场准备就绪，按 F12 进入" 的提示信息
+6. WHEN 玩家在 READY 状态下按下 F12, THE Addon SHALL 通过 `/click PVPReadyDialogEnterBattleButton` 进入战场，停止声音和闪烁，并重置状态为 IDLE
+7. IF 战场确认超时（confirm 状态消失）, THEN THE Addon SHALL 在聊天窗口显示 "战场进入已过期" 的提示，停止声音和闪烁，并重置状态为 IDLE
+
+### 需求 6：流程状态管理与超时机制
+
+**用户故事：** 作为玩家，我希望插件能正确管理排队流程的状态，在异常情况下自动超时重置，防止卡死。
+
+#### 验收标准
+
+1. THE Addon SHALL 维护一个状态机，包含六个状态：IDLE（空闲）、TARGETING（选中目标）、INTERACTING（等待交互）、GOSSIPING（处理对话）、QUEUING（等待排队）、READY（等待进入战场）
+2. WHEN 排队流程启动（第一次按下 F12 且开始选中 NPC）, THE Addon SHALL 启动一个 Timeout（默认 6 秒）全局超时定时器
+3. IF 流程在 Timeout 时间内未完成, THEN THE Addon SHALL 取消所有定时器、停止声音和闪烁、将 F12 重新绑定到初始按钮、将状态重置为 IDLE，并在聊天窗口显示超时提示
+4. WHEN 流程成功完成排队或因任何原因重置, THE Addon SHALL 执行完整的状态清理：取消步骤定时器、取消超时定时器、停止提示音、停止屏幕闪烁、递增 Generation_Counter、重置状态为 IDLE、重新绑定 F12 到初始按钮
+5. THE Addon SHALL 使用 Generation_Counter 机制，确保状态重置后旧的定时器回调不会执行过期操作
 
 ### 需求 7：事件驱动的步骤衔接
 
-**用户故事：** 作为玩家，我希望插件通过游戏事件驱动各步骤的衔接，以便流程稳定可靠。
+**用户故事：** 作为玩家，我希望插件通过游戏事件驱动各步骤的衔接，使流程稳定可靠。
 
 #### 验收标准
 
-1. THE Addon SHALL 注册 GOSSIP_SHOW 事件用于检测 Gossip_Frame 的打开
-2. THE Addon SHALL 注册 BATTLEFIELDS_SHOW 事件（或等效事件）用于检测 Battlemaster_Frame 的打开
-3. WHEN 收到 GOSSIP_SHOW 事件且流程状态为交互中, THE Gossip_Module SHALL 等待 Step_Delay（2 秒）后再执行选择第一个对话选项的操作
-4. WHEN 收到战场窗口打开事件且流程状态为选择对话, THE Queue_Module SHALL 等待 Step_Delay（2 秒）后再执行点击 "Join Battle" 按钮的操作
-5. WHILE 流程状态为空闲, THE Addon SHALL 忽略所有与排队流程相关的游戏事件
+1. THE Addon SHALL 注册以下游戏事件：GOSSIP_SHOW、BATTLEFIELDS_SHOW、UPDATE_BATTLEFIELD_STATUS、PLAYER_LOGIN
+2. WHEN 收到 GOSSIP_SHOW 事件且状态为 INTERACTING, THE Addon SHALL 将 F12 重新绑定回初始按钮，然后在 Step_Delay（0.2 秒）后自动选择第一个对话选项并将状态设置为 GOSSIPING
+3. WHEN 收到 BATTLEFIELDS_SHOW 事件且状态为 GOSSIPING, THE Addon SHALL 将状态设置为 QUEUING，将 F12 绑定到 AVQueueHelperJoinButton，并提示玩家按 F12 加入排队
+4. WHEN 收到 UPDATE_BATTLEFIELD_STATUS 事件且状态为 IDLE, THE Addon SHALL 检查是否有战场状态为 "confirm"，如有则进入 READY 状态
+5. WHEN 收到 UPDATE_BATTLEFIELD_STATUS 事件且状态为 READY, THE Addon SHALL 检查所有战场槽位是否仍有 "confirm" 状态；如果所有槽位均不再为 "confirm"，则判定为战场进入已过期，在聊天窗口显示提示并重置状态为 IDLE
+6. WHILE 流程状态不匹配事件的预期状态, THE Addon SHALL 忽略该事件（例如 GOSSIP_SHOW 在非 INTERACTING 状态下被忽略）
 
-### 需求 8：步骤间延迟等待机制
+### 需求 8：日志与消息系统
 
-**用户故事：** 作为玩家，我希望插件在每个步骤之间加入固定的等待时间，以便游戏客户端有足够时间响应操作，避免因操作过快导致流程失败。
+**用户故事：** 作为玩家，我希望插件在聊天窗口显示清晰的状态信息，帮助我了解当前流程进度和错误原因。
 
 #### 验收标准
 
-1. THE Addon SHALL 在每个步骤执行完成后等待 Step_Delay（2 秒）再执行下一步操作
-2. THE Addon SHALL 使用 C_Timer.After 函数实现 Step_Delay 的延迟等待
-3. WHEN 选中 Stormpike_Emissary 成功后, THE Target_Module SHALL 等待 2 秒再触发 InteractUnit 交互操作
-4. WHEN InteractUnit 交互成功且 Gossip_Frame 打开后, THE Interact_Module SHALL 等待 2 秒再触发选择对话选项操作
-5. WHEN 对话选项选择完成且 Battlemaster_Frame 打开后, THE Gossip_Module SHALL 等待 2 秒再触发点击 "Join Battle" 按钮操作
-6. IF 在 Step_Delay 等待期间流程被取消或超时, THEN THE Addon SHALL 取消待执行的延迟回调并将流程状态重置为空闲状态
+1. THE Addon SHALL 支持四个日志级别：DEBUG（1）、INFO（2）、WARN（3）、ERROR（4）
+2. THE Addon SHALL 通过 CONFIG.LOG_LEVEL 配置最低显示级别（默认为 INFO），低于该级别的消息不显示
+3. ALL 玩家可见的消息 SHALL 使用绿色前缀 `|cFF00FF00[AVQueueHelper]|r` 标识来源
+4. THE Addon SHALL 在以下关键节点输出消息：登录绑定完成、NPC 选中成功/失败、提示按键交互、战场窗口打开提示按键加入、排队完成、已在排队中、战场进行中、战场结束自动离开、战场准备就绪、进入战场、流程超时、战场进入过期
+5. THE Addon SHALL 永不静默失败——每个状态转换或错误都应产生聊天消息

@@ -1,15 +1,20 @@
--- AVQueueHelper: Auto-queue Alterac Valley with F12
--- State enum
+-- AVQueueHelper: Streamlines Alterac Valley queuing via F12
+-- Three presses: target NPC → interact → join queue
+-- Supports both Alliance (Stormpike Emissary) and Horde (Frostwolf Emissary)
+
+-- ============================================================
+-- Constants & Configuration
+-- ============================================================
+
 local STATE = {
-    IDLE        = "IDLE",
-    TARGETING   = "TARGETING",
-    INTERACTING = "INTERACTING",  -- Waiting for F12 to trigger INTERACTTARGET
-    GOSSIPING   = "GOSSIPING",
-    QUEUING     = "QUEUING",
-    READY       = "READY",       -- BG queue popped, waiting for F12 to enter
+    IDLE        = "IDLE",        -- Waiting for player to start queue flow
+    TARGETING   = "TARGETING",   -- /target macro just fired, verifying result
+    INTERACTING = "INTERACTING", -- NPC targeted, waiting for F12 → INTERACTTARGET
+    GOSSIPING   = "GOSSIPING",   -- Gossip dialog open, auto-selecting first option
+    QUEUING     = "QUEUING",     -- Battlefield window open, waiting for F12 → Join
+    READY       = "READY",       -- Queue popped, alerting player to press F12 → Enter
 }
 
--- Log levels
 local LOG_LEVEL = {
     DEBUG = 1,
     INFO  = 2,
@@ -17,36 +22,37 @@ local LOG_LEVEL = {
     ERROR = 4,
 }
 
--- NPC names per faction
 local NPC_NAMES = {
     Alliance = "Stormpike Emissary",
     Horde    = "Frostwolf Emissary",
 }
 
--- Configuration constants
 local CONFIG = {
-    NPC_NAME       = nil,  -- set dynamically on PLAYER_LOGIN based on faction
-    STEP_DELAY     = 0.2,
-    TIMEOUT        = 6,
+    NPC_NAME       = nil,   -- Set dynamically on PLAYER_LOGIN based on faction
+    STEP_DELAY     = 0.2,   -- Seconds between automated sub-steps
+    TIMEOUT        = 6,     -- Seconds before the queue flow auto-resets
     KEYBIND        = "F12",
     MSG_PREFIX     = "|cFF00FF00[AVQueueHelper]|r ",
-    ALERT_SOUND    = 1018,  -- WolfFidget2
-    ALERT_INTERVAL = 3,
+    ALERT_SOUND    = 1018,  -- Sound Kit ID (WolfFidget2)
+    ALERT_INTERVAL = 3,     -- Seconds between repeated alert sounds
     LOG_LEVEL      = LOG_LEVEL.INFO,
 }
 
--- Addon state variables
+-- ============================================================
+-- Mutable State
+-- ============================================================
+
 local addonState = {
     currentState = STATE.IDLE,
-    timeoutTimer = nil,
-    stepTimer    = nil,
-    generation   = 0,
-    alertTimer   = nil,
-    flashTimer   = nil,
+    timeoutTimer = nil,  -- Global timeout timer reference
+    stepTimer    = nil,  -- Current sub-step delay timer reference
+    generation   = 0,    -- Incremented on reset; stale callbacks check this
+    alertTimer   = nil,  -- Repeating alert sound ticker
+    flashTimer   = nil,  -- Screen flash toggle ticker
 }
 
 -- ============================================================
--- Core event framework
+-- Event Framework
 -- ============================================================
 
 local eventHandlers = {}
@@ -55,14 +61,14 @@ local frame = CreateFrame("Frame", "AVQueueHelperFrame", UIParent)
 frame:RegisterEvent("GOSSIP_SHOW")
 frame:RegisterEvent("BATTLEFIELDS_SHOW")
 frame:RegisterEvent("UPDATE_BATTLEFIELD_STATUS")
-frame:SetScript("OnEvent", function(self, event, ...)
+frame:SetScript("OnEvent", function(_, event, ...)
     if eventHandlers[event] then
         eventHandlers[event](...)
     end
 end)
 
 -- ============================================================
--- Utility functions
+-- Utility: Logging
 -- ============================================================
 
 local function PrintMessage(msg, level)
@@ -72,6 +78,10 @@ local function PrintMessage(msg, level)
         DEFAULT_CHAT_FRAME:AddMessage(CONFIG.MSG_PREFIX .. msg)
     end
 end
+
+-- ============================================================
+-- Utility: State Management
+-- ============================================================
 
 local function GetState()
     return addonState.currentState
@@ -88,6 +98,10 @@ local function CancelTimeout()
     end
 end
 
+-- ============================================================
+-- Alert: Sound
+-- ============================================================
+
 local function StopAlertSound()
     if addonState.alertTimer then
         addonState.alertTimer:Cancel()  ---@diagnostic disable-line: undefined-field
@@ -95,7 +109,22 @@ local function StopAlertSound()
     end
 end
 
--- Red screen flash for confirm alert
+local function StartAlertSound()
+    StopAlertSound()
+    PlaySound(CONFIG.ALERT_SOUND, "Master")
+    addonState.alertTimer = C_Timer.NewTicker(CONFIG.ALERT_INTERVAL, function()
+        if GetState() ~= STATE.READY then
+            StopAlertSound()
+            return
+        end
+        PlaySound(CONFIG.ALERT_SOUND, "Master")
+    end)
+end
+
+-- ============================================================
+-- Alert: Screen Flash
+-- ============================================================
+
 local flashFrame = CreateFrame("Frame", "AVQueueHelperFlashFrame", UIParent)
 flashFrame:SetFrameStrata("TOOLTIP")
 flashFrame:SetAllPoints(UIParent)
@@ -127,17 +156,9 @@ local function StartFlash()
     end)
 end
 
-local function StartAlertSound()
-    StopAlertSound()
-    PlaySound(CONFIG.ALERT_SOUND, "Master")
-    addonState.alertTimer = C_Timer.NewTicker(CONFIG.ALERT_INTERVAL, function()
-        if GetState() ~= STATE.READY then
-            StopAlertSound()
-            return
-        end
-        PlaySound(CONFIG.ALERT_SOUND, "Master")
-    end)
-end
+-- ============================================================
+-- State Reset & Timeout
+-- ============================================================
 
 local function ResetState()
     if addonState.stepTimer then
@@ -149,7 +170,6 @@ local function ResetState()
     StopFlash()
     addonState.generation = addonState.generation + 1
     SetState(STATE.IDLE)
-    -- Ensure keybind is rebound to the target button
     SetBindingClick(CONFIG.KEYBIND, "AVQueueHelperButton")
 end
 
@@ -163,21 +183,12 @@ local function StartTimeout()
 end
 
 -- ============================================================
--- Queue workflow step functions
+-- Event Handlers
 -- ============================================================
 
-local SelectFirstGossipOption
-
-SelectFirstGossipOption = function()
-    SelectGossipOption(1)
-end
-
--- ============================================================
--- Event handlers
--- ============================================================
-
+-- GOSSIP_SHOW: NPC dialog opened after INTERACTTARGET.
+-- Auto-select the first gossip option after a short delay.
 eventHandlers["GOSSIP_SHOW"] = function()
-    -- PrintMessage("GOSSIP_SHOW fired, state: " .. GetState())
     if GetState() ~= STATE.INTERACTING then return end
     SetBindingClick(CONFIG.KEYBIND, "AVQueueHelperButton")
     local gen = addonState.generation
@@ -185,28 +196,36 @@ eventHandlers["GOSSIP_SHOW"] = function()
         if addonState.generation ~= gen then return end
         addonState.stepTimer = nil
         SetState(STATE.GOSSIPING)
-        SelectFirstGossipOption()
+        SelectGossipOption(1)
     end)
 end
 
+-- BATTLEFIELDS_SHOW: Battlefield join window appeared.
+-- Rebind F12 to the Join Battle button so the player can confirm.
 eventHandlers["BATTLEFIELDS_SHOW"] = function()
-    -- PrintMessage("BATTLEFIELDS_SHOW fired, state: " .. GetState())
     if GetState() ~= STATE.GOSSIPING then return end
-    -- JoinBattlefield() is also a protected function requiring a hardware event.
-    -- Rebind F12 to a macro button that /click's the Blizzard Join Battle button.
     SetState(STATE.QUEUING)
     SetBindingClick(CONFIG.KEYBIND, "AVQueueHelperJoinButton")
     PrintMessage("Battlefield window open, press " .. CONFIG.KEYBIND .. " to join queue", LOG_LEVEL.INFO)
 end
 
+-- UPDATE_BATTLEFIELD_STATUS: Fires when any BG slot changes status.
+-- Detects queue pop ("confirm") and enters READY state with alerts.
 eventHandlers["UPDATE_BATTLEFIELD_STATUS"] = function()
-    -- When a queued BG becomes ready to enter (status == "confirm"),
-    -- rebind keybind to the enter button so the player can press F12 to enter.
-    -- Only do this when IDLE (not mid-flow).
+    if GetState() == STATE.READY then
+        -- Check if confirm expired while we were alerting
+        for i = 1, 3 do
+            if GetBattlefieldStatus(i) == "confirm" then return end
+        end
+        PrintMessage("Battleground entry expired", LOG_LEVEL.INFO)
+        ResetState()
+        return
+    end
+
     if GetState() ~= STATE.IDLE then return end
+
     for i = 1, 3 do
-        local status = GetBattlefieldStatus(i)
-        if status == "confirm" then
+        if GetBattlefieldStatus(i) == "confirm" then
             SetState(STATE.READY)
             SetBindingClick(CONFIG.KEYBIND, "AVQueueHelperEnterButton")
             PrintMessage("Battleground ready! Press " .. CONFIG.KEYBIND .. " to enter", LOG_LEVEL.INFO)
@@ -215,41 +234,24 @@ eventHandlers["UPDATE_BATTLEFIELD_STATUS"] = function()
             return
         end
     end
-    -- If we were in READY state but confirm went away (expired), reset
-    if GetState() == STATE.READY then
-        PrintMessage("Battleground entry expired", LOG_LEVEL.INFO)
-        ResetState()
-    end
 end
 
 -- ============================================================
--- Secure buttons & F12 keybinding
+-- Secure Buttons
 -- ============================================================
--- TargetUnit(), InteractUnit(), and JoinBattlefield() are all protected
--- functions that can only run in a hardware-event secure execution path.
--- The player must press F12 three times, each triggering a different action:
+-- Protected APIs (TargetUnit, InteractUnit, JoinBattlefield) require a
+-- hardware event, so the player presses F12 three times:
 --
---   F12 press 1: Secure macro button executes /target NPC
---     PostClick verifies target, rebinds F12 to INTERACTTARGET
---   F12 press 2: Game executes INTERACTTARGET -> opens NPC dialog
---     GOSSIP_SHOW fires -> auto-selects first gossip option
---     BATTLEFIELDS_SHOW fires -> rebinds F12 to Join Battle button
---   F12 press 3: /click BattlefieldFrameJoinButton -> queue joined
---     PostClick resets state, rebinds F12 back to initial target button
+--   Press 1: /target NPC → PostClick verifies, rebinds F12 to INTERACTTARGET
+--   Press 2: INTERACTTARGET → GOSSIP_SHOW → auto-select gossip option
+--            → BATTLEFIELDS_SHOW → rebinds F12 to Join Battle
+--   Press 3: /click BattlefieldFrameJoinButton → queue complete → reset
 
--- Jump button: /jump to prevent AFK while queued
-local jumpBtn = CreateFrame("Button", "AVQueueHelperJumpButton", UIParent, "SecureActionButtonTemplate")
-jumpBtn:SetAttribute("type", "macro")
-jumpBtn:SetAttribute("macrotext", "/jump")
-jumpBtn:SetScript("PostClick", function()
-    PrintMessage("Already queued for a battleground, please wait", LOG_LEVEL.INFO)
-    SetBindingClick(CONFIG.KEYBIND, "AVQueueHelperButton")
-end)
+-- Button 1: Target NPC (macrotext set on PLAYER_LOGIN)
+local targetBtn = CreateFrame("Button", "AVQueueHelperButton", UIParent, "SecureActionButtonTemplate")
+targetBtn:SetAttribute("type", "macro")
 
-local btn = CreateFrame("Button", "AVQueueHelperButton", UIParent, "SecureActionButtonTemplate")
-btn:SetAttribute("type", "macro")
-
-btn:SetScript("PostClick", function()
+targetBtn:SetScript("PostClick", function()
     if GetState() ~= STATE.IDLE then return end
 
     -- Check battlefield status before starting queue flow
@@ -262,7 +264,6 @@ btn:SetScript("PostClick", function()
         if status == "active" then
             local winner = GetBattlefieldWinner()
             if winner ~= nil then
-                -- Match is over, safe to leave without deserter
                 PrintMessage("Battleground ended, leaving", LOG_LEVEL.INFO)
                 LeaveBattlefield()
             else
@@ -284,7 +285,7 @@ btn:SetScript("PostClick", function()
     end
 end)
 
--- Join Battle button: /click's the Blizzard Join Battle button
+-- Button 2: Join Battle (/click Blizzard's Join Battle button)
 local joinBtn = CreateFrame("Button", "AVQueueHelperJoinButton", UIParent, "SecureActionButtonTemplate")
 joinBtn:SetAttribute("type", "macro")
 joinBtn:SetAttribute("macrotext", "/click BattlefieldFrameJoinButton")
@@ -294,7 +295,7 @@ joinBtn:SetScript("PostClick", function()
     ResetState()
 end)
 
--- Enter Battleground button: /click's the Blizzard PVP ready dialog enter button
+-- Button 3: Enter Battleground (/click Blizzard's PVP ready dialog button)
 local enterBtn = CreateFrame("Button", "AVQueueHelperEnterButton", UIParent, "SecureActionButtonTemplate")
 enterBtn:SetAttribute("type", "macro")
 enterBtn:SetAttribute("macrotext", "/click PVPReadyDialogEnterBattleButton")
@@ -304,7 +305,10 @@ enterBtn:SetScript("PostClick", function()
     ResetState()
 end)
 
--- Register Configured key, default is F12, keybinding on login
+-- ============================================================
+-- Initialization (PLAYER_LOGIN)
+-- ============================================================
+
 frame:RegisterEvent("PLAYER_LOGIN")
 eventHandlers["PLAYER_LOGIN"] = function()
     local faction = UnitFactionGroup("player")
@@ -313,7 +317,7 @@ eventHandlers["PLAYER_LOGIN"] = function()
         PrintMessage("Unknown faction: " .. tostring(faction) .. ", defaulting to Alliance NPC", LOG_LEVEL.WARN)
         CONFIG.NPC_NAME = NPC_NAMES["Alliance"]
     end
-    btn:SetAttribute("macrotext", "/target " .. CONFIG.NPC_NAME)
+    targetBtn:SetAttribute("macrotext", "/target " .. CONFIG.NPC_NAME)
     SetBindingClick(CONFIG.KEYBIND, "AVQueueHelperButton")
     PrintMessage(CONFIG.KEYBIND .. " bound — press " .. CONFIG.KEYBIND .. " x3 near " .. CONFIG.NPC_NAME .. " to queue AV (" .. faction .. ")", LOG_LEVEL.INFO)
     frame:UnregisterEvent("PLAYER_LOGIN")

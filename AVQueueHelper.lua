@@ -38,6 +38,24 @@ local CONFIG = {
     LOG_LEVEL      = LOG_LEVEL.INFO,
 }
 
+local DEFAULTS = {
+    logLevel = LOG_LEVEL.INFO,
+    keybind  = "F12",
+}
+
+local function LoadSavedSettings()
+    if AVQueueHelperDB == nil then
+        AVQueueHelperDB = {}
+    end
+    for k, v in pairs(DEFAULTS) do
+        if AVQueueHelperDB[k] == nil then
+            AVQueueHelperDB[k] = v
+        end
+    end
+    CONFIG.LOG_LEVEL = AVQueueHelperDB.logLevel
+    CONFIG.KEYBIND   = AVQueueHelperDB.keybind
+end
+
 -- ============================================================
 -- Mutable State
 -- ============================================================
@@ -311,6 +329,7 @@ end)
 
 frame:RegisterEvent("PLAYER_LOGIN")
 eventHandlers["PLAYER_LOGIN"] = function()
+    LoadSavedSettings()
     local faction = UnitFactionGroup("player")
     CONFIG.NPC_NAME = NPC_NAMES[faction]
     if not CONFIG.NPC_NAME then

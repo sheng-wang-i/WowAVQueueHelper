@@ -3,5 +3,6 @@
 ## Notes: Join AV with single key press
 ## Author: AVQueueHelper
 ## Version: 1.0.0
+## SavedVariables: AVQueueHelperDB
 
 AVQueueHelper.lua

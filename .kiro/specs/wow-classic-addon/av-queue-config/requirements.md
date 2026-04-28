@@ -20,7 +20,7 @@
 
 1. THE Addon SHALL 在 .toc 文件中声明 `## SavedVariables: AVQueueHelperDB`，使客户端在登出时自动持久化设置数据
 2. WHEN 玩家登录游戏（PLAYER_LOGIN 事件触发）, THE Addon SHALL 加载 AVQueueHelperDB 中的已保存设置；IF AVQueueHelperDB 为 nil 或缺少字段, THEN THE Addon SHALL 使用默认值初始化缺失字段（日志级别默认 INFO，快捷键默认 F12）
-3. THE Settings_Panel SHALL 通过 `CreateFrame` 创建一个设置界面框体，并注册到 WoW 内置的 Interface Options 系统（`InterfaceOptions_AddCategory`），使玩家可通过 ESC → Options → AddOns 访问
+3. 配置界面可以通过slash command /avq来呼出。
 4. THE Settings_Panel SHALL 提供一个日志级别下拉菜单，包含 DEBUG、INFO、WARN、ERROR 四个选项，默认值为 INFO
 5. WHEN 玩家在设置面板中更改日志级别, THE Addon SHALL 立即更新 CONFIG.LOG_LEVEL 为所选级别，并将新值保存到 AVQueueHelperDB
 6. THE Settings_Panel SHALL 提供一个快捷键绑定输入框，显示当前绑定的按键（默认 F12）

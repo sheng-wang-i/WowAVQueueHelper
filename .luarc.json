@@ -26,6 +26,7 @@
     "UIDropDownMenu_SetSelectedValue",
     "UIDropDownMenu_AddButton",
     "UIDropDownMenu_CreateInfo",
+    "UIDropDownMenu_SetText",
     "GetBindingAction",
     "AVQueueHelper_Shared",
     "AVQueueHelperDB"

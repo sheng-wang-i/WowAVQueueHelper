@@ -21,6 +21,7 @@
 - `PlaySound` — sound playback by Sound Kit ID
 - `SetColorTexture` — creating colored textures for visual effects
 - Never use functions that are only allowed in Blizzard UI but not allowed in addons
+- when more feature are added other than core, prefer to create new code file to implement the new feature instead of keep modify the existing lua file from existing feature.
 
 ## Addon Structure
 - `.toc` file — addon metadata and file manifest (Interface version, Title, Notes)

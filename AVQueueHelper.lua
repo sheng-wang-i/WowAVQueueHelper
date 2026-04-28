@@ -22,6 +22,10 @@ local LOG_LEVEL = {
     ERROR = 4,
 }
 
+-- Shared namespace for cross-file access (ConfigPanel.lua)
+AVQueueHelper_Shared = AVQueueHelper_Shared or {}
+AVQueueHelper_Shared.LOG_LEVEL = LOG_LEVEL
+
 local NPC_NAMES = {
     Alliance = "Stormpike Emissary",
     Horde    = "Frostwolf Emissary",
@@ -37,6 +41,9 @@ local CONFIG = {
     ALERT_INTERVAL = 3,     -- Seconds between repeated alert sounds
     LOG_LEVEL      = LOG_LEVEL.INFO,
 }
+
+AVQueueHelper_Shared.CONFIG = CONFIG
+AVQueueHelper_Shared.STATE = STATE
 
 local DEFAULTS = {
     logLevel = LOG_LEVEL.INFO,
@@ -69,6 +76,8 @@ local addonState = {
     flashTimer   = nil,  -- Screen flash toggle ticker
 }
 
+AVQueueHelper_Shared.addonState = addonState
+
 -- ============================================================
 -- Event Framework
 -- ============================================================
@@ -96,6 +105,8 @@ local function PrintMessage(msg, level)
         DEFAULT_CHAT_FRAME:AddMessage(CONFIG.MSG_PREFIX .. msg)
     end
 end
+
+AVQueueHelper_Shared.PrintMessage = PrintMessage
 
 -- ============================================================
 -- Utility: State Management

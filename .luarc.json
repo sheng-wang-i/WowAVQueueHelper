@@ -15,6 +15,19 @@
     "LeaveBattlefield",
     "PlaySound",
     "UnitFactionGroup",
-    "JoinBattlefield"
+    "JoinBattlefield",
+    "tinsert",
+    "UISpecialFrames",
+    "SlashCmdList",
+    "SLASH_AVQUEUEHELPER1",
+    "AVQueueHelperSettingsPanel",
+    "UIDropDownMenu_Initialize",
+    "UIDropDownMenu_SetWidth",
+    "UIDropDownMenu_SetSelectedValue",
+    "UIDropDownMenu_AddButton",
+    "UIDropDownMenu_CreateInfo",
+    "GetBindingAction",
+    "AVQueueHelper_Shared",
+    "AVQueueHelperDB"
   ]
 }

@@ -6,3 +6,4 @@
 ## SavedVariables: AVQueueHelperDB
 
 AVQueueHelper.lua
+ConfigPanel.lua

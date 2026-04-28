@@ -40,6 +40,9 @@ Between presses the addon provides chat feedback so the player knows what to do 
 
 - Alliance only. The NPC name ("Stormpike Emissary") is hardcoded in CONFIG.NPC_NAME.
 
+## Language
+- Only english can be used in lua file, toc file.
+
 ## Product Conventions
 
 - The addon must never silently fail — every state transition or error should produce a chat message.

@@ -2,7 +2,8 @@
 
 ```
 ├── AVQueueHelper.toc          # Addon descriptor (interface version, title, file list)
-└── AVQueueHelper.lua          # All addon logic (single-file architecture)
+└── AVQueueHelper.lua          # All addon core logic
+└── ConfigPanel.lua            # for feature av-queue-config
 ```
 
 ## Architecture Pattern
@@ -22,6 +23,7 @@
 10. Event handlers (GOSSIP_SHOW, BATTLEFIELDS_SHOW, UPDATE_BATTLEFIELD_STATUS)
 11. Secure buttons (AVQueueHelperButton, AVQueueHelperJumpButton, AVQueueHelperJoinButton, AVQueueHelperEnterButton)
 12. Keybinding setup (F12 → AVQueueHelperButton on PLAYER_LOGIN)
+
 
 ## Conventions
 - All global frame names use the `AVQueueHelper` prefix to avoid namespace collisions

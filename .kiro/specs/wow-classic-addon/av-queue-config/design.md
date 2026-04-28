@@ -195,25 +195,25 @@ local settingsState = {
 
 *For any* 可能的 AVQueueHelperDB 初始状态（nil、空表、部分字段、完整字段），经过初始化逻辑后，结果表必须包含所有必需字段（logLevel、keybind）且值有效；已存在的有效值不被覆盖。
 
-**Validates: Requirements 9.2**
+**Validates: Requirements 2**
 
 ### Property 2: 日志级别更新一致性
 
 *For any* 有效的日志级别选择（DEBUG=1、INFO=2、WARN=3、ERROR=4），更改后 CONFIG.LOG_LEVEL 和 AVQueueHelperDB.logLevel 必须同时等于所选值。
 
-**Validates: Requirements 9.5**
+**Validates: Requirements 5**
 
 ### Property 3: 无冲突快捷键绑定完整性
 
 *For any* 不与现有绑定冲突的按键，执行快捷键更改后：旧按键的绑定被解除、新按键绑定到当前阶段按钮、CONFIG.KEYBIND 等于新按键、AVQueueHelperDB.keybind 等于新按键。
 
-**Validates: Requirements 9.7**
+**Validates: Requirements 7**
 
 ### Property 4: 冲突按键绑定拒绝
 
 *For any* 已被游戏内置功能绑定的按键（GetBindingAction 返回非空），尝试绑定该按键时：产生 WARN 级别消息、CONFIG.KEYBIND 保持不变、AVQueueHelperDB.keybind 保持不变、不执行 SetBindingClick。
 
-**Validates: Requirements 9.9**
+**Validates: Requirements 9**
 
 ## 错误处理
 

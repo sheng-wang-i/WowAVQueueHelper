@@ -26,5 +26,7 @@
 6. THE Settings_Panel SHALL 提供一个快捷键绑定输入框，显示当前绑定的按键（默认 F12）
 7. WHEN 玩家在设置面板中更改快捷键绑定, THE Addon SHALL 解除旧按键的绑定、将新按键绑定到当前阶段对应的安全按钮、更新 CONFIG.KEYBIND 为新按键值，并将新值保存到 AVQueueHelperDB
 8. WHEN 玩家登录游戏且 AVQueueHelperDB 中存在已保存的快捷键设置, THE Addon SHALL 使用已保存的快捷键（而非默认 F12）进行初始绑定
-9. IF 玩家设置的快捷键与游戏内置快捷键冲突, THEN THE Addon SHALL 在聊天窗口显示警告信息，告知玩家该按键可能与其他功能冲突, 并且放弃继续绑定。
+9. IF 玩家设置的快捷键与游戏内置快捷键冲突（且该绑定不属于插件自身的安全按钮）, THEN THE Addon SHALL 在聊天窗口显示警告信息，告知玩家该按键可能与其他功能冲突, 并且放弃继续绑定。
 10. 下拉菜单log level应在窗口出现时就现在目前已经选中的level
+11. THE Settings_Panel SHALL 支持鼠标拖动移动位置
+12. WHEN 玩家在快捷键捕获模式中按下 ESC, THE Addon SHALL 退出捕获模式而不更改绑定，且不关闭设置面板

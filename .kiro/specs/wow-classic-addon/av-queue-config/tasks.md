@@ -33,10 +33,11 @@
 - [x] 2. 实现设置面板 Frame 和斜杠命令
   - [x] 2.1 在 ConfigPanel.lua 中创建设置面板 Frame
     - 使用 `CreateFrame("Frame", "AVQueueHelperSettingsPanel", UIParent, "BasicFrameTemplateWithInset")` 创建面板
-    - 设置面板尺寸（约 300x250）、位置（屏幕居中）、标题文本 "AVQueueHelper Settings"
-    - 初始状态隐藏，支持 ESC 关闭（将 "AVQueueHelperSettingsPanel" 加入 `UISpecialFrames`）
+    - 设置面板尺寸 190x250、位置居中偏上（CENTER, 0, 50）、标题文本 "AVQueueHelper"
+    - 支持拖动（SetMovable + RegisterForDrag("LeftButton")）
+    - 初始状态隐藏，支持 ESC 关闭（OnShow 时动态加入 `UISpecialFrames`）
     - 通过 `AVQueueHelper_Shared` 读取共享的 LOG_LEVEL 和 CONFIG 表
-    - _Requirements: 3_
+    - _Requirements: 3, 11_
 
   - [x] 2.2 在 ConfigPanel.lua 中注册 `/avq` 斜杠命令
     - 设置 `SLASH_AVQUEUEHELPER1 = "/avq"`
@@ -66,12 +67,14 @@
     - _Requirements: 6_
 
   - [x] 4.2 在 ConfigPanel.lua 中实现快捷键捕获和冲突检测逻辑
-    - 在捕获模式下通过 `OnKeyDown` 捕获按键（ESC 退出捕获模式）
-    - 调用 `GetBindingAction(key)` 检测冲突
+    - 在捕获模式下通过 `OnKeyDown` 捕获按键
+    - ESC 退出捕获模式，不更改绑定，不传播按键（避免关闭面板）
+    - 调用 `GetBindingAction(key)` 检测冲突，排除插件自身按钮（isOwnBinding）和当前绑定键
     - 若有冲突：PrintMessage WARN 级别提示冲突动作名称，放弃绑定，退出捕获模式，恢复显示旧按键
-    - 若无冲突：`SetBinding(oldKey)` 解除旧绑定，`SetBindingClick(newKey, currentButton)` 绑定新按键，更新 CONFIG.KEYBIND 和 AVQueueHelperDB.keybind，更新按钮显示文本
-    - 其中 `currentButton` 为当前阶段对应的安全按钮名称（通过检查 addonState.currentState 确定，addonState 通过 AVQueueHelper_Shared 访问）
-    - _Requirements: 7, 9_
+    - 若无冲突：`SetBinding(oldKey)` 解除旧绑定，`SetBinding(key)` 清除新按键旧绑定，`SetBindingClick(key, currentButton)` 绑定新按键，更新 CONFIG.KEYBIND 和 AVQueueHelperDB.keybind，更新按钮显示文本
+    - 退出捕获模式时 `SetPropagateKeyboardInput(false)` 防止按键触发新绑定
+    - 其中 `currentButton` 通过检查 `addonState.currentState`（via AVQueueHelper_Shared）确定
+    - _Requirements: 7, 9, 12_
 
   - [ ]* 4.3 编写属性测试：无冲突快捷键绑定完整性
     - **Property 3: 无冲突快捷键绑定完整性**

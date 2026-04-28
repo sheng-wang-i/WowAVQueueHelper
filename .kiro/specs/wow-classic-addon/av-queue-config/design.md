@@ -15,6 +15,27 @@
 
 ## 架构
 
+### 文件结构
+
+```
+AVQueueHelper.toc          # 声明 SavedVariables, 按顺序列出 .lua 文件
+AVQueueHelper.lua          # 核心逻辑 + LoadSavedSettings + AVQueueHelper_Shared 暴露
+ConfigPanel.lua            # 设置面板 UI + /avq 命令（依赖 AVQueueHelper_Shared）
+```
+
+### 跨文件共享机制
+
+`AVQueueHelper.lua` 通过全局表 `AVQueueHelper_Shared` 暴露以下内容供 `ConfigPanel.lua` 使用：
+- `AVQueueHelper_Shared.LOG_LEVEL` — 日志级别常量表
+- `AVQueueHelper_Shared.CONFIG` — 配置表（LOG_LEVEL, KEYBIND 等）
+- `AVQueueHelper_Shared.STATE` — 状态枚举
+- `AVQueueHelper_Shared.addonState` — 可变状态（currentState 等）
+- `AVQueueHelper_Shared.PrintMessage` — 日志输出函数
+
+`ConfigPanel.lua` 反向暴露：
+- `AVQueueHelper_Shared.settingsState` — 捕获模式状态
+- `AVQueueHelper_Shared.keybindButton` — 快捷键按钮引用
+
 ### 设置系统架构
 
 ```mermaid
@@ -52,15 +73,19 @@ sequenceDiagram
     participant A as Addon 逻辑
     participant G as 游戏客户端
 
-    P->>UI: 点击快捷键输入框（进入捕获模式）
+    P->>UI: 点击快捷键按钮（进入捕获模式）
+    UI->>UI: 文本变为 "Press a key..."
     P->>UI: 按下新按键
     UI->>A: OnKeyDown(key)
     A->>G: GetBindingAction(key)
-    alt 有冲突
-        A->>P: WARN: 按键与 X 冲突，放弃绑定
+    alt key == ESCAPE
+        A->>UI: 恢复显示旧按键，退出捕获模式
+    else 有冲突（非自身按钮且非当前绑定键）
+        A->>P: WARN: 按键与 action 冲突，放弃绑定
         A->>UI: 恢复显示旧按键
-    else 无冲突
+    else 无冲突或为自身按钮
         A->>G: SetBinding(旧按键) -- 解除旧绑定
+        A->>G: SetBinding(新按键) -- 清除新按键旧绑定
         A->>G: SetBindingClick(新按键, 当前按钮)
         A->>A: CONFIG.KEYBIND = 新按键
         A->>A: AVQueueHelperDB.keybind = 新按键
@@ -136,12 +161,14 @@ end
 
 接口：
 - 显示当前绑定按键文本
-- 点击进入"捕获模式"（文本变为提示"按下新按键..."）
+- 点击进入"捕获模式"（文本变为 "Press a key..."）
 - 捕获模式下通过 `OnKeyDown` 捕获按键
+- ESC 退出捕获模式（不传播按键，避免关闭面板）
 - 捕获到按键后：
-  1. 调用 `GetBindingAction(key)` 检测冲突
-  2. 若有冲突：`PrintMessage` WARN 级别提示，放弃绑定，退出捕获模式
-  3. 若无冲突：解除旧绑定 `SetBinding(oldKey)`，绑定新按键 `SetBindingClick(newKey, currentButton)`，更新 CONFIG 和 DB
+  1. 调用 `GetBindingAction(key)` 检测冲突（排除插件自身按钮和当前绑定键）
+  2. 若有冲突：`PrintMessage` WARN 级别提示冲突动作名称，放弃绑定，退出捕获模式
+  3. 若无冲突：`SetBinding(oldKey)` 解除旧绑定，`SetBinding(key)` 清除新按键旧绑定，`SetBindingClick(key, currentButton)` 绑定新按键，更新 CONFIG 和 DB
+- 退出捕获模式时设置 `SetPropagateKeyboardInput(false)` 防止按键触发新绑定
 
 ### 7. 冲突检测逻辑
 
@@ -220,7 +247,7 @@ local settingsState = {
 
 ### Property 4: 冲突按键绑定拒绝
 
-*For any* 已被游戏内置功能绑定的按键（GetBindingAction 返回非空），尝试绑定该按键时：产生 WARN 级别消息、CONFIG.KEYBIND 保持不变、AVQueueHelperDB.keybind 保持不变、不执行 SetBindingClick。
+*For any* 已被游戏内置功能绑定的按键（GetBindingAction 返回非空，且该绑定不属于插件自身的安全按钮，且该按键不是当前已绑定的 CONFIG.KEYBIND），尝试绑定该按键时：产生 WARN 级别消息、CONFIG.KEYBIND 保持不变、AVQueueHelperDB.keybind 保持不变、不执行 SetBindingClick。
 
 **Validates: Requirements 9**
 
@@ -231,36 +258,42 @@ local settingsState = {
 | AVQueueHelperDB 为 nil | 创建空表并用 DEFAULTS 填充所有字段 |
 | AVQueueHelperDB 缺少部分字段 | 仅填充缺失字段，保留已有值 |
 | 快捷键与内置绑定冲突 | WARN 提示冲突动作名称，放弃绑定，保持旧设置 |
-| 捕获模式中按下 ESC | 退出捕获模式，不更改绑定 |
+| 快捷键绑定到插件自身按钮 | 视为无冲突，允许绑定 |
+| 捕获模式中按下 ESC | 退出捕获模式，不更改绑定，不传播按键（面板不关闭） |
 | 设置面板打开时流程进行中 | 面板正常显示，不影响排队流程状态 |
 
 ## 测试策略
 
 ### 测试方法
 
-由于 WoW Classic 插件运行在游戏客户端内，无法使用标准自动化测试框架。但设置功能的核心逻辑（默认值合并、冲突检测）可以通过提取纯函数并在 Lua 测试环境中验证。
+由于 WoW Classic 插件运行在游戏客户端内，无法使用标准自动化测试框架。但设置功能的核心逻辑（默认值合并、日志级别更新）可以通过提取纯函数并在 Lua 测试环境中验证。
 
 #### 属性测试（Property-Based Testing）
 
-使用 [luacheck](https://github.com/mpeterv/luacheck) 进行静态分析，使用 [busted](https://github.com/lunarmodules/busted) + 自定义生成器进行属性测试：
+使用 [busted](https://github.com/lunarmodules/busted) 测试框架进行属性测试：
 
 - 每个属性测试最少运行 100 次迭代
 - 标签格式：`-- Feature: av-queue-config, Property N: <property_text>`
 - 测试目标为提取出的纯逻辑函数（不依赖 WoW API 的部分）
 
-可测试的纯函数：
-1. **InitializeDB(db, defaults)** — 合并默认值逻辑（Property 1）
-2. **CheckKeybindConflict(key)** — 冲突检测逻辑（Property 4，需 mock GetBindingAction）
-3. **ApplyLogLevel(level, config, db)** — 日志级别更新逻辑（Property 2）
+已实现的可测试纯函数（位于 `tests/` 目录）：
+1. **tests/load_saved_settings.lua** — `LoadSavedSettings(db)` 合并默认值逻辑（Property 1）
+2. **tests/apply_log_level.lua** — `ApplyLogLevel(level, config, db)` 日志级别更新逻辑（Property 2）
+3. **tests/apply_log_level_spec.lua** — Property 2 的 busted 测试用例（已通过）
+
+待实现：
 4. **ApplyKeybind(newKey, oldKey, config, db)** — 快捷键绑定逻辑（Property 3，需 mock SetBinding/SetBindingClick）
+5. **CheckKeybindConflict(key, currentKeybind, ownButtons)** — 冲突检测逻辑（Property 4，需 mock GetBindingAction）
 
 #### 手动功能测试
 
 在游戏内通过 `/reload` 验证：
 - `/avq` 正确切换面板显示/隐藏
+- 面板可拖动
 - 日志级别下拉菜单包含 4 个选项且默认 INFO
 - 更改日志级别后 `/reload` 仍保留设置
 - 快捷键输入框显示当前绑定
 - 更改快捷键后排队流程使用新按键
-- 冲突按键被正确拒绝并显示警告
+- 冲突按键被正确拒绝并显示警告（插件自身按钮除外）
+- ESC 退出捕获模式但不关闭面板
 - 删除 SavedVariables 文件后重新登录恢复默认值

@@ -7,10 +7,11 @@
 ### 设计决策
 
 1. **SavedVariables 持久化**：使用 WoW 客户端原生的 SavedVariables 机制（在 .toc 中声明 `AVQueueHelperDB`），客户端在登出时自动将该全局表序列化到磁盘。
-2. **单文件架构延续**：所有设置面板代码直接添加到现有 `AVQueueHelper.lua` 中，保持单文件结构。
-3. **自定义面板而非 InterfaceOptions**：通过 `CreateFrame` 创建独立的设置面板 Frame，使用 `/avq` 斜杠命令切换显示/隐藏，不使用 `InterfaceOptions_AddCategory`。
-4. **冲突检测优先于绑定**：快捷键更改时先通过 `GetBindingAction` 检测冲突，若冲突则 WARN 并放弃绑定，不覆盖已有绑定。
+2. **双文件架构**：核心逻辑和 SavedVariables 加载在 `AVQueueHelper.lua` 中完成，设置面板 UI 代码独立放置在 `ConfigPanel.lua` 中。两文件通过 `AVQueueHelper_Shared` 全局表共享状态（LOG_LEVEL、CONFIG、STATE、addonState、PrintMessage 等）。`.toc` 中按顺序列出 `AVQueueHelper.lua`（先加载）和 `ConfigPanel.lua`（后加载，依赖 Shared 表）。
+3. **自定义面板而非 InterfaceOptions**：通过 `CreateFrame` 创建独立的设置面板 Frame，使用 `/avq` 斜杠命令切换显示/隐藏，不使用 `InterfaceOptions_AddCategory`。面板支持拖动（`SetMovable(true)` + `RegisterForDrag`）。
+4. **冲突检测优先于绑定**：快捷键更改时先通过 `GetBindingAction` 检测冲突，若冲突则 WARN 并放弃绑定，不覆盖已有绑定。但允许绑定到插件自身按钮（AVQueueHelperButton、AVQueueHelperJoinButton、AVQueueHelperJumpButton、AVQueueHelperEnterButton）已占用的按键。
 5. **默认值回退**：PLAYER_LOGIN 时检查 `AVQueueHelperDB`，若为 nil 或缺少字段则用默认值填充（LOG_LEVEL = INFO, KEYBIND = F12）。
+6. **绑定前清除**：更换快捷键时，先 `SetBinding(oldKey)` 解除旧绑定，再 `SetBinding(key)` 清除新按键上可能存在的旧绑定，最后 `SetBindingClick(key, currentButton)` 绑定新按键。
 
 ## 架构
 
@@ -117,10 +118,12 @@ end
 
 通过 `CreateFrame("Frame", "AVQueueHelperSettingsPanel", UIParent, "BasicFrameTemplateWithInset")` 创建，包含：
 
-- 标题文本
+- 面板尺寸 190x250，居中偏上（CENTER, 0, 50）
+- 标题文本 "AVQueueHelper"
 - 日志级别下拉菜单（UIDropDownMenu）
 - 快捷键绑定输入框（Button，点击进入捕获模式）
-- ESC 关闭支持
+- 支持拖动（SetMovable + RegisterForDrag("LeftButton")）
+- ESC 关闭支持（OnShow 时动态加入 UISpecialFrames）
 
 ### 5. 日志级别下拉菜单
 
@@ -140,15 +143,21 @@ end
   2. 若有冲突：`PrintMessage` WARN 级别提示，放弃绑定，退出捕获模式
   3. 若无冲突：解除旧绑定 `SetBinding(oldKey)`，绑定新按键 `SetBindingClick(newKey, currentButton)`，更新 CONFIG 和 DB
 
-### 7. 冲突检测函数
+### 7. 冲突检测逻辑
+
+冲突检测内联在 `OnKeyDown` 处理器中（非独立函数）：
 
 ```lua
-local function CheckKeybindConflict(key)
-    local action = GetBindingAction(key)
-    if action and action ~= "" then
-        return action  -- 返回冲突的动作名称
-    end
-    return nil
+-- 检测冲突（允许绑定到插件自身按钮或当前快捷键）
+local action = GetBindingAction(key)
+local isOwnBinding = action and (
+    action == "CLICK AVQueueHelperButton:LeftButton" or
+    action == "CLICK AVQueueHelperJoinButton:LeftButton" or
+    action == "CLICK AVQueueHelperJumpButton:LeftButton" or
+    action == "CLICK AVQueueHelperEnterButton:LeftButton"
+)
+if action and action ~= "" and key ~= CONFIG.KEYBIND and not isOwnBinding then
+    -- 冲突：WARN 并放弃
 end
 ```
 

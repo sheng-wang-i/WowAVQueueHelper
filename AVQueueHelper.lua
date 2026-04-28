@@ -349,6 +349,6 @@ eventHandlers["PLAYER_LOGIN"] = function()
     end
     targetBtn:SetAttribute("macrotext", "/target " .. CONFIG.NPC_NAME)
     SetBindingClick(CONFIG.KEYBIND, "AVQueueHelperButton")
-    PrintMessage(CONFIG.KEYBIND .. " bound — press " .. CONFIG.KEYBIND .. " x3 near " .. CONFIG.NPC_NAME .. " to queue AV (" .. faction .. ")", LOG_LEVEL.INFO)
+    PrintMessage(CONFIG.KEYBIND .. " bound — press " .. CONFIG.KEYBIND .. " x3 near " .. CONFIG.NPC_NAME .. " to queue AV (" .. faction .. ")." .. " Use /avq to change key binding.", LOG_LEVEL.INFO)
     frame:UnregisterEvent("PLAYER_LOGIN")
 end

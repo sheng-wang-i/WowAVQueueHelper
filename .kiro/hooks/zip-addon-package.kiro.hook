@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "name": "Package Addon Zip",
+  "description": "Creates AVQueueHelper.zip in the parent directory, excluding dot-files and dot-directories. Replaces existing zip if present.",
+  "version": "1",
+  "when": {
+    "type": "userTriggered"
+  },
+  "then": {
+    "type": "runCommand",
+    "command": "rm -f ../AVQueueHelper.zip && cd .. && zip -r AVQueueHelper.zip AVQueueHelper/ -x 'AVQueueHelper/.*' -x 'AVQueueHelper/*/.*'"
+  }
+}

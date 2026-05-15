@@ -141,7 +141,7 @@ local function StopAlertSound()
         addonState.alertTimer = nil
     end
     if addonState.savedVolume ~= nil then
-        PrintMessage("Restore the original sound volume to"..addonState.savedVolume, LOG_LEVEL.INFO)
+        PrintMessage("Restore the original sound volume to"..addonState.savedVolume, LOG_LEVEL.DEBUG)
         SetCVar("Sound_MasterVolume", addonState.savedVolume)
         addonState.savedVolume = nil
     end
@@ -157,7 +157,7 @@ local function StartAlertSound()
     if boostedVolume > 1.0 then
         boostedVolume = 1.0
     end
-    PrintMessage("Increase the sound volume to "..boostedVolume, LOG_LEVEL.INFO)
+    PrintMessage("Increase the sound volume to "..boostedVolume, LOG_LEVEL.DEBUG)
     SetCVar("Sound_MasterVolume", boostedVolume)
 
     PlaySound(CONFIG.ALERT_SOUND, "Master")

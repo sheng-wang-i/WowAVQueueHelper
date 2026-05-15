@@ -2,7 +2,7 @@
 
 ## Overview
 
-Implement a WoW Classic Lua addon that streamlines Alterac Valley battleground queuing via three F12 keypresses. The addon uses secure action buttons with keybind rebinding, a six-state state machine, event-driven step transitions, and a queue-pop alert system with sound and screen flash. Supports both Alliance and Horde factions. Implementation follows a two-file structure: AVQueueHelper.toc and AVQueueHelper.lua.
+Implement a WoW Classic Lua addon that streamlines Alterac Valley battleground queuing via three F12 keypresses. The addon uses secure action buttons with keybind rebinding, a six-state state machine, event-driven step transitions, and a queue-pop alert system with sound, screen flash, and automatic volume boost. Supports both Alliance and Horde factions. Implementation follows a two-file structure: AVQueueHelper.toc and AVQueueHelper.lua.
 
 ## Tasks
 
@@ -100,6 +100,73 @@ Implement a WoW Classic Lua addon that streamlines Alterac Valley battleground q
     - Print initialization message with faction info
     - Unregister PLAYER_LOGIN after first run
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 2.1, 2.3, 2.4_
+
+- [x] 8. Implement alert volume boost
+  - [x] 8.1 Add volume boost configuration and state
+    - Add `VOLUME_BOOST_FACTOR = 1.5` to CONFIG table
+    - Add `savedVolume = nil` field to addonState table
+    - _Requirements: 9.1, 9.2_
+
+  - [x] 8.2 Implement volume save and boost in StartAlertSound
+    - Before playing sound, read current Master_Volume via `GetCVar("Sound_MasterVolume")`
+    - Store the original value in `addonState.savedVolume`
+    - Calculate boosted volume as `originalVolume * CONFIG.VOLUME_BOOST_FACTOR`
+    - Cap boosted volume at 1.0 if it exceeds maximum
+    - Set Master_Volume to boosted value via `SetCVar("Sound_MasterVolume", boostedValue)`
+    - _Requirements: 9.1, 9.2, 9.3_
+
+  - [x] 8.3 Implement volume restore in StopAlertSound
+    - Check if `addonState.savedVolume` is not nil
+    - Restore Master_Volume to saved value via `SetCVar("Sound_MasterVolume", addonState.savedVolume)`
+    - Set `addonState.savedVolume` to nil after restoring
+    - This ensures volume is restored on all code paths: player enters battleground, confirm expires, timeout, or any ResetState call
+    - _Requirements: 9.4, 9.5_
+
+## Task Dependency Graph
+
+```mermaid
+flowchart TD
+    1.1[1.1 Create TOC] --> 1.2[1.2 Define constants]
+    1.2 --> 2.1[2.1 Event framework]
+    1.2 --> 2.2[2.2 PrintMessage logging]
+    2.1 --> 3.1[3.1 State accessors & reset]
+    2.2 --> 3.1
+    3.1 --> 3.2[3.2 Timeout mechanism]
+    3.1 --> 4.1[4.1 Alert sound]
+    3.1 --> 4.2[4.2 Screen flash]
+    4.1 --> 8.1[8.1 Volume boost config & state]
+    8.1 --> 8.2[8.2 Volume save & boost in StartAlertSound]
+    8.2 --> 8.3[8.3 Volume restore in StopAlertSound]
+    3.2 --> 5.1[5.1 GOSSIP_SHOW handler]
+    3.2 --> 5.2[5.2 BATTLEFIELDS_SHOW handler]
+    4.1 --> 5.3[5.3 UPDATE_BATTLEFIELD_STATUS handler]
+    4.2 --> 5.3
+    5.1 --> 6.1[6.1 Target button]
+    5.2 --> 6.1
+    5.3 --> 6.1
+    5.2 --> 6.2[6.2 Join button]
+    5.3 --> 6.3[6.3 Enter button]
+    6.1 --> 7.1[7.1 PLAYER_LOGIN handler]
+    6.2 --> 7.1
+    6.3 --> 7.1
+```
+
+```json
+{
+  "waves": [
+    { "tasks": ["1.1"] },
+    { "tasks": ["1.2"] },
+    { "tasks": ["2.1", "2.2"] },
+    { "tasks": ["3.1"] },
+    { "tasks": ["3.2", "4.1", "4.2"] },
+    { "tasks": ["8.1"] },
+    { "tasks": ["8.2"] },
+    { "tasks": ["8.3", "5.1", "5.2", "5.3"] },
+    { "tasks": ["6.1", "6.2", "6.3"] },
+    { "tasks": ["7.1"] }
+  ]
+}
+```
 
 ## Notes
 

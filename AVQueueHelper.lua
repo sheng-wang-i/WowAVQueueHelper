@@ -32,14 +32,15 @@ local NPC_NAMES = {
 }
 
 local CONFIG = {
-    NPC_NAME       = nil,   -- Set dynamically on PLAYER_LOGIN based on faction
-    STEP_DELAY     = 0.2,   -- Seconds between automated sub-steps
-    TIMEOUT        = 6,     -- Seconds before the queue flow auto-resets
-    KEYBIND        = "F12",
-    MSG_PREFIX     = "|cFF00FF00[AVQueueHelper]|r ",
-    ALERT_SOUND    = 1018,  -- Sound Kit ID (WolfFidget2)
-    ALERT_INTERVAL = 3,     -- Seconds between repeated alert sounds
-    LOG_LEVEL      = LOG_LEVEL.INFO,
+    NPC_NAME             = nil,   -- Set dynamically on PLAYER_LOGIN based on faction
+    STEP_DELAY           = 0.2,   -- Seconds between automated sub-steps
+    TIMEOUT              = 6,     -- Seconds before the queue flow auto-resets
+    KEYBIND              = "F12",
+    MSG_PREFIX           = "|cFF00FF00[AVQueueHelper]|r ",
+    ALERT_SOUND          = 1018,  -- Sound Kit ID (WolfFidget2)
+    ALERT_INTERVAL       = 3,     -- Seconds between repeated alert sounds
+    LOG_LEVEL            = LOG_LEVEL.INFO,
+    VOLUME_BOOST_FACTOR  = 1.5,   -- Multiplier applied to Master Volume during alerts
 }
 
 AVQueueHelper_Shared.CONFIG = CONFIG
@@ -74,6 +75,7 @@ local addonState = {
     generation   = 0,    -- Incremented on reset; stale callbacks check this
     alertTimer   = nil,  -- Repeating alert sound ticker
     flashTimer   = nil,  -- Screen flash toggle ticker
+    savedVolume  = nil,  -- Original Master Volume before boost (restored on alert stop)
 }
 
 AVQueueHelper_Shared.addonState = addonState
@@ -136,10 +138,26 @@ local function StopAlertSound()
         addonState.alertTimer:Cancel()  ---@diagnostic disable-line: undefined-field
         addonState.alertTimer = nil
     end
+    if addonState.savedVolume ~= nil then
+        PrintMessage("Restore the original sound volume to"..addonState.savedVolume, LOG_LEVEL.INFO)
+        SetCVar("Sound_MasterVolume", addonState.savedVolume)
+        addonState.savedVolume = nil
+    end
 end
 
 local function StartAlertSound()
     StopAlertSound()
+
+    -- Save current master volume and boost it for alert audibility
+    local originalVolume = tonumber(GetCVar("Sound_MasterVolume")) or 1.0
+    addonState.savedVolume = originalVolume
+    local boostedVolume = originalVolume * CONFIG.VOLUME_BOOST_FACTOR
+    if boostedVolume > 1.0 then
+        boostedVolume = 1.0
+    end
+    PrintMessage("Increase the sound volume to "..boostedVolume, LOG_LEVEL.INFO)
+    SetCVar("Sound_MasterVolume", boostedVolume)
+
     PlaySound(CONFIG.ALERT_SOUND, "Master")
     addonState.alertTimer = C_Timer.NewTicker(CONFIG.ALERT_INTERVAL, function()
         if GetState() ~= STATE.READY then

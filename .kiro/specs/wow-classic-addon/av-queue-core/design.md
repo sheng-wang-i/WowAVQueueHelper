@@ -154,8 +154,8 @@ end)
 ### 5. 提醒系统（Alert System）
 
 声音提醒：
-- `StartAlertSound()` — 立即播放 Sound Kit 1018，启动每 3 秒重复的 C_Timer.NewTicker
-- `StopAlertSound()` — 取消 ticker
+- `StartAlertSound()` — 记录当前 Master_Volume 到 addonState.savedVolume，将音量提升至 150%（上限 1.0），然后立即播放 Sound Kit 1018，启动每 3 秒重复的 C_Timer.NewTicker
+- `StopAlertSound()` — 取消 ticker，将 Master_Volume 恢复为 addonState.savedVolume 中保存的原始值，并将 addonState.savedVolume 置为 nil
 
 屏幕闪烁：
 - `StartFlash()` — 显示全屏红色半透明 Frame（alpha 0.3），启动每 0.5 秒切换显示/隐藏的 ticker
@@ -192,6 +192,7 @@ local addonState = {
     generation   = 0,            -- 递增计数器，防止过期回调执行
     alertTimer   = nil,          -- 提示音重复 ticker 引用
     flashTimer   = nil,          -- 屏幕闪烁 ticker 引用
+    savedVolume  = nil,          -- 告警前保存的原始 Master_Volume 值
 }
 ```
 
@@ -204,13 +205,14 @@ local NPC_NAMES = {
 }
 
 local CONFIG = {
-    NPC_NAME       = nil,   -- PLAYER_LOGIN 时根据阵营动态设置
-    STEP_DELAY     = 0.2,   -- 步骤间延迟（秒）
-    TIMEOUT        = 6,     -- 全局超时（秒）
-    MSG_PREFIX     = "|cFF00FF00[AVQueueHelper]|r ",
-    ALERT_SOUND    = 1018,  -- Sound Kit ID
-    ALERT_INTERVAL = 3,     -- 提示音间隔（秒）
-    LOG_LEVEL      = LOG_LEVEL.INFO,
+    NPC_NAME           = nil,   -- PLAYER_LOGIN 时根据阵营动态设置
+    STEP_DELAY         = 0.2,   -- 步骤间延迟（秒）
+    TIMEOUT            = 6,     -- 全局超时（秒）
+    MSG_PREFIX         = "|cFF00FF00[AVQueueHelper]|r ",
+    ALERT_SOUND        = 1018,  -- Sound Kit ID
+    ALERT_INTERVAL     = 3,     -- 提示音间隔（秒）
+    VOLUME_BOOST_FACTOR = 1.5,  -- 告警音量增幅系数（150%）
+    LOG_LEVEL          = LOG_LEVEL.INFO,
 }
 ```
 

@@ -8,6 +8,8 @@
   },
   "then": {
     "type": "runCommand",
-    "command": "rm -f ../AVQueueHelper.zip && cd .. && zip -r AVQueueHelper.zip AVQueueHelper/ -x 'AVQueueHelper/.*' -x 'AVQueueHelper/*/.*'"
-  }
+    "command": "rm -f ../AVQueueHelper_202*.zip && cd .. && zip -r \"AVQueueHelper_$(date +%Y%m%d%H%M%S).zip\" AVQueueHelper/ -x 'AVQueueHelper/.*' -x 'AVQueueHelper/*/.*'\n"
+  },
+  "workspaceFolderName": "AVQueueHelper",
+  "shortName": "zip-addon-package"
 }

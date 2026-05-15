@@ -13,6 +13,8 @@ luac.out
 *.obj
 *.elf
 
+.idea/*
+
 # Precompiled Headers
 *.gch
 *.pch

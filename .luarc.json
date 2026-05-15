@@ -29,6 +29,8 @@
     "UIDropDownMenu_SetText",
     "GetBindingAction",
     "AVQueueHelper_Shared",
+    "SetCVar",
+    "GetCVar",
     "AVQueueHelperDB"
   ]
 }

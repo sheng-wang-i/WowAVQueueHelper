@@ -5,7 +5,7 @@
 -- ============================================================
 
 local panel = CreateFrame("Frame", "AVQueueHelperSettingsPanel", UIParent, "BasicFrameTemplateWithInset")
-panel:SetSize(190, 250)
+panel:SetSize(190, 330)
 panel:SetPoint("CENTER", 0, 50)
 panel:SetMovable(true)
 panel:EnableMouse(true)
@@ -171,6 +171,44 @@ keybindButton:SetScript("OnKeyDown", function(self, key)
     self:SetPropagateKeyboardInput(false)
 end)
 
+-- ============================================================
+-- Volume Boost Slider
+-- ============================================================
+
+-- Label
+local volumeBoostLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+volumeBoostLabel:SetPoint("TOPLEFT", keybindButton, "BOTTOMLEFT", 0, -16)
+volumeBoostLabel:SetText("Volume Boost")
+
+-- Slider
+local volumeBoostSlider = CreateFrame("Slider", "AVQueueHelperVolumeBoostSlider", panel, "OptionsSliderTemplate")
+volumeBoostSlider:SetPoint("TOPLEFT", volumeBoostLabel, "BOTTOMLEFT", 0, -12)
+volumeBoostSlider:SetWidth(140)
+volumeBoostSlider:SetMinMaxValues(1.0, 2.0)
+volumeBoostSlider:SetValueStep(0.1)
+volumeBoostSlider:SetObeyStepOnDrag(true)
+volumeBoostSlider:SetValue(CONFIG.VOLUME_BOOST_FACTOR)
+
+-- Low/High labels
+local sliderName = volumeBoostSlider:GetName()
+local sliderLow = _G[sliderName .. "Low"]
+local sliderHigh = _G[sliderName .. "High"]
+sliderLow:SetText("1.0")
+sliderHigh:SetText("2.0")
+
+-- Current value label (one decimal place)
+local volumeBoostValueLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+volumeBoostValueLabel:SetPoint("TOP", volumeBoostSlider, "BOTTOM", 0, -2)
+volumeBoostValueLabel:SetText(string.format("%.1f", CONFIG.VOLUME_BOOST_FACTOR))
+
+-- OnValueChanged: round to one decimal, persist, and update label
+volumeBoostSlider:SetScript("OnValueChanged", function(_, value)
+    local rounded = math.floor(value * 10 + 0.5) / 10
+    CONFIG.VOLUME_BOOST_FACTOR = rounded
+    AVQueueHelperDB.volumeBoostFactor = rounded
+    volumeBoostValueLabel:SetText(string.format("%.1f", rounded))
+end)
+
 -- Refresh selection when panel is shown (picks up external changes)
 panel:SetScript("OnShow", function()
     -- Ensure frame is in UISpecialFrames for ESC-to-close
@@ -191,6 +229,9 @@ panel:SetScript("OnShow", function()
     if not settingsState.capturingKeybind then
         keybindButton:SetText(CONFIG.KEYBIND)
     end
+    -- Sync volume boost slider with current CONFIG value
+    volumeBoostSlider:SetValue(CONFIG.VOLUME_BOOST_FACTOR)
+    volumeBoostValueLabel:SetText(string.format("%.1f", CONFIG.VOLUME_BOOST_FACTOR))
 end)
 
 -- Expose for cross-file access (keybind capture logic in task 4.2)

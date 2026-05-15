@@ -1,8 +1,8 @@
 # 设计文档 — 设置界面面板
 
-## 概述
+## Overview
 
-本设计描述如何为 AVQueueHelper 插件添加设置界面面板功能。玩家可通过 `/avq` 斜杠命令打开设置面板，配置日志级别和快捷键绑定。设置通过 WoW 的 SavedVariables 机制跨会话持久化。
+本设计描述如何为 AVQueueHelper 插件添加设置界面面板功能。玩家可通过 `/avq` 斜杠命令打开设置面板，配置日志级别、快捷键绑定和音量增强倍数。设置通过 WoW 的 SavedVariables 机制跨会话持久化。
 
 ### 设计决策
 
@@ -10,10 +10,11 @@
 2. **双文件架构**：核心逻辑和 SavedVariables 加载在 `AVQueueHelper.lua` 中完成，设置面板 UI 代码独立放置在 `ConfigPanel.lua` 中。两文件通过 `AVQueueHelper_Shared` 全局表共享状态（LOG_LEVEL、CONFIG、STATE、addonState、PrintMessage 等）。`.toc` 中按顺序列出 `AVQueueHelper.lua`（先加载）和 `ConfigPanel.lua`（后加载，依赖 Shared 表）。
 3. **自定义面板而非 InterfaceOptions**：通过 `CreateFrame` 创建独立的设置面板 Frame，使用 `/avq` 斜杠命令切换显示/隐藏，不使用 `InterfaceOptions_AddCategory`。面板支持拖动（`SetMovable(true)` + `RegisterForDrag`）。
 4. **冲突检测优先于绑定**：快捷键更改时先通过 `GetBindingAction` 检测冲突，若冲突则 WARN 并放弃绑定，不覆盖已有绑定。但允许绑定到插件自身按钮（AVQueueHelperButton、AVQueueHelperJoinButton、AVQueueHelperJumpButton、AVQueueHelperEnterButton）已占用的按键。
-5. **默认值回退**：PLAYER_LOGIN 时检查 `AVQueueHelperDB`，若为 nil 或缺少字段则用默认值填充（LOG_LEVEL = INFO, KEYBIND = F12）。
+5. **默认值回退**：PLAYER_LOGIN 时检查 `AVQueueHelperDB`，若为 nil 或缺少字段则用默认值填充（LOG_LEVEL = INFO, KEYBIND = F12, volumeBoostFactor = 1.5）。
 6. **绑定前清除**：更换快捷键时，先 `SetBinding(oldKey)` 解除旧绑定，再 `SetBinding(key)` 清除新按键上可能存在的旧绑定，最后 `SetBindingClick(key, currentButton)` 绑定新按键。
+7. **滑块控件使用原生 Slider Frame**：Volume Boost Slider 使用 WoW 原生 `CreateFrame("Slider")` 创建，配合 `MinMaxValues(1.0, 2.0)` 和 `ValueStep(0.1)` 实现 0.1 步进。通过 FontString 显示当前值标签（一位小数），OnValueChanged 实时更新 CONFIG 和 DB，OnShow 同步 CONFIG 当前值到滑块。
 
-## 架构
+## Architecture
 
 ### 文件结构
 
@@ -27,7 +28,7 @@ ConfigPanel.lua            # 设置面板 UI + /avq 命令（依赖 AVQueueHelpe
 
 `AVQueueHelper.lua` 通过全局表 `AVQueueHelper_Shared` 暴露以下内容供 `ConfigPanel.lua` 使用：
 - `AVQueueHelper_Shared.LOG_LEVEL` — 日志级别常量表
-- `AVQueueHelper_Shared.CONFIG` — 配置表（LOG_LEVEL, KEYBIND 等）
+- `AVQueueHelper_Shared.CONFIG` — 配置表（LOG_LEVEL, KEYBIND, VOLUME_BOOST_FACTOR 等）
 - `AVQueueHelper_Shared.STATE` — 状态枚举
 - `AVQueueHelper_Shared.addonState` — 可变状态（currentState 等）
 - `AVQueueHelper_Shared.PrintMessage` — 日志输出函数
@@ -62,6 +63,10 @@ flowchart TD
     R --> S[绑定新按键到当前阶段按钮]
     S --> T[更新 CONFIG.KEYBIND]
     T --> U[保存到 AVQueueHelperDB]
+
+    V[Volume Boost Slider 拖动] --> W[更新 CONFIG.VOLUME_BOOST_FACTOR]
+    W --> X[保存到 AVQueueHelperDB.volumeBoostFactor]
+    X --> Y[更新数值标签显示]
 ```
 
 ### 快捷键更改时序图
@@ -93,7 +98,7 @@ sequenceDiagram
     end
 ```
 
-## 组件与接口
+## Components and Interfaces
 
 ### 1. SavedVariables 声明（.toc 修改）
 
@@ -106,8 +111,9 @@ sequenceDiagram
 
 ```lua
 local DEFAULTS = {
-    logLevel = LOG_LEVEL.INFO,
-    keybind  = "F12",
+    logLevel         = LOG_LEVEL.INFO,
+    keybind          = "F12",
+    volumeBoostFactor = 1.5,
 }
 ```
 
@@ -122,8 +128,9 @@ for k, v in pairs(DEFAULTS) do
         AVQueueHelperDB[k] = v
     end
 end
-CONFIG.LOG_LEVEL = AVQueueHelperDB.logLevel
-CONFIG.KEYBIND = AVQueueHelperDB.keybind
+CONFIG.LOG_LEVEL            = AVQueueHelperDB.logLevel
+CONFIG.KEYBIND              = AVQueueHelperDB.keybind
+CONFIG.VOLUME_BOOST_FACTOR  = AVQueueHelperDB.volumeBoostFactor
 ```
 
 ### 3. 斜杠命令注册
@@ -147,6 +154,7 @@ end
 - 标题文本 "AVQueueHelper"
 - 日志级别下拉菜单（UIDropDownMenu）
 - 快捷键绑定输入框（Button，点击进入捕获模式）
+- Volume Boost Slider 滑块控件
 - 支持拖动（SetMovable + RegisterForDrag("LeftButton")）
 - ESC 关闭支持（OnShow 时动态加入 UISpecialFrames）
 
@@ -188,15 +196,67 @@ if action and action ~= "" and key ~= CONFIG.KEYBIND and not isOwnBinding then
 end
 ```
 
-## 数据模型
+### 8. Volume Boost Slider 滑块控件
+
+使用 WoW 原生 `CreateFrame("Slider")` 创建滑块：
+
+```lua
+-- Label
+local volumeBoostLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+volumeBoostLabel:SetPoint("TOPLEFT", keybindButton, "BOTTOMLEFT", 0, -16)
+volumeBoostLabel:SetText("Volume Boost")
+
+-- Slider
+local volumeBoostSlider = CreateFrame("Slider", "AVQueueHelperVolumeBoostSlider", panel, "OptionsSliderTemplate")
+volumeBoostSlider:SetPoint("TOPLEFT", volumeBoostLabel, "BOTTOMLEFT", 0, -12)
+volumeBoostSlider:SetWidth(140)
+volumeBoostSlider:SetMinMaxValues(1.0, 2.0)
+volumeBoostSlider:SetValueStep(0.1)
+volumeBoostSlider:SetObeyStepOnDrag(true)
+volumeBoostSlider:SetValue(CONFIG.VOLUME_BOOST_FACTOR)
+
+-- Min/Max labels on the slider template
+volumeBoostSlider.Low = volumeBoostSlider.Low or _G[volumeBoostSlider:GetName() .. "Low"]
+volumeBoostSlider.High = volumeBoostSlider.High or _G[volumeBoostSlider:GetName() .. "High"]
+volumeBoostSlider.Low:SetText("1.0")
+volumeBoostSlider.High:SetText("2.0")
+
+-- Current value label (one decimal place)
+local volumeBoostValueLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+volumeBoostValueLabel:SetPoint("TOP", volumeBoostSlider, "BOTTOM", 0, -2)
+volumeBoostValueLabel:SetText(string.format("%.1f", CONFIG.VOLUME_BOOST_FACTOR))
+```
+
+接口：
+- `OnValueChanged` 处理器：更新 CONFIG.VOLUME_BOOST_FACTOR、保存到 AVQueueHelperDB.volumeBoostFactor、更新数值标签
+
+```lua
+volumeBoostSlider:SetScript("OnValueChanged", function(self, value)
+    local rounded = math.floor(value * 10 + 0.5) / 10  -- round to 1 decimal
+    CONFIG.VOLUME_BOOST_FACTOR = rounded
+    AVQueueHelperDB.volumeBoostFactor = rounded
+    volumeBoostValueLabel:SetText(string.format("%.1f", rounded))
+end)
+```
+
+- 面板 `OnShow` 处理器中同步滑块值：
+
+```lua
+-- 在现有 OnShow 处理器中追加：
+volumeBoostSlider:SetValue(CONFIG.VOLUME_BOOST_FACTOR)
+volumeBoostValueLabel:SetText(string.format("%.1f", CONFIG.VOLUME_BOOST_FACTOR))
+```
+
+## Data Models
 
 ### SavedVariables 结构
 
 ```lua
 -- 全局变量，由 WoW 客户端自动持久化
 AVQueueHelperDB = {
-    logLevel = 2,      -- LOG_LEVEL 数值 (1=DEBUG, 2=INFO, 3=WARN, 4=ERROR)
-    keybind  = "F12",  -- 当前绑定的按键字符串
+    logLevel          = 2,      -- LOG_LEVEL 数值 (1=DEBUG, 2=INFO, 3=WARN, 4=ERROR)
+    keybind           = "F12",  -- 当前绑定的按键字符串
+    volumeBoostFactor = 1.5,    -- 音量增强倍数 (1.0 ~ 2.0)
 }
 ```
 
@@ -204,14 +264,15 @@ AVQueueHelperDB = {
 
 ```lua
 local DEFAULTS = {
-    logLevel = LOG_LEVEL.INFO,  -- 2
-    keybind  = "F12",
+    logLevel          = LOG_LEVEL.INFO,  -- 2
+    keybind           = "F12",
+    volumeBoostFactor = 1.5,
 }
 ```
 
 ### CONFIG 表扩展
 
-现有 CONFIG 表中 `LOG_LEVEL` 和 `KEYBIND` 字段将在 PLAYER_LOGIN 时从 AVQueueHelperDB 加载，而非使用硬编码值。
+现有 CONFIG 表中 `LOG_LEVEL`、`KEYBIND` 和 `VOLUME_BOOST_FACTOR` 字段将在 PLAYER_LOGIN 时从 AVQueueHelperDB 加载，而非使用硬编码值。
 
 ### 设置面板状态
 
@@ -221,52 +282,69 @@ local settingsState = {
 }
 ```
 
-
-
-## 正确性属性
+## Correctness Properties
 
 *属性（Property）是在系统所有有效执行中都应成立的特征或行为——本质上是对系统应做什么的形式化陈述。属性是人类可读规格说明与机器可验证正确性保证之间的桥梁。*
 
 ### Property 1: 默认值初始化完整性
 
-*For any* 可能的 AVQueueHelperDB 初始状态（nil、空表、部分字段、完整字段），经过初始化逻辑后，结果表必须包含所有必需字段（logLevel、keybind）且值有效；已存在的有效值不被覆盖。
+*For any* 可能的 AVQueueHelperDB 初始状态（nil、空表、部分字段、完整字段），经过初始化逻辑后，结果表必须包含所有必需字段（logLevel、keybind、volumeBoostFactor）且值有效；已存在的有效值不被覆盖。
 
-**Validates: Requirements 2**
+**Validates: Requirements 9.2, 10.4, 10.5**
 
 ### Property 2: 日志级别更新一致性
 
 *For any* 有效的日志级别选择（DEBUG=1、INFO=2、WARN=3、ERROR=4），更改后 CONFIG.LOG_LEVEL 和 AVQueueHelperDB.logLevel 必须同时等于所选值。
 
-**Validates: Requirements 5**
+**Validates: Requirements 9.5**
 
 ### Property 3: 无冲突快捷键绑定完整性
 
 *For any* 不与现有绑定冲突的按键，执行快捷键更改后：旧按键的绑定被解除、新按键绑定到当前阶段按钮、CONFIG.KEYBIND 等于新按键、AVQueueHelperDB.keybind 等于新按键。
 
-**Validates: Requirements 7**
+**Validates: Requirements 9.7**
 
 ### Property 4: 冲突按键绑定拒绝
 
 *For any* 已被游戏内置功能绑定的按键（GetBindingAction 返回非空，且该绑定不属于插件自身的安全按钮，且该按键不是当前已绑定的 CONFIG.KEYBIND），尝试绑定该按键时：产生 WARN 级别消息、CONFIG.KEYBIND 保持不变、AVQueueHelperDB.keybind 保持不变、不执行 SetBindingClick。
 
-**Validates: Requirements 9**
+**Validates: Requirements 9.9**
 
-## 错误处理
+### Property 5: 音量增强倍数数值标签格式
+
+*For any* 有效的滑块值（1.0 到 2.0 之间，步进 0.1），格式化后的标签文本必须恰好包含一位小数（如 "1.0"、"1.5"、"2.0"），且数值与滑块当前值一致。
+
+**Validates: Requirements 10.2**
+
+### Property 6: 音量增强倍数更新一致性
+
+*For any* 有效的滑块值（1.0 到 2.0 之间，步进 0.1），更改后 CONFIG.VOLUME_BOOST_FACTOR 和 AVQueueHelperDB.volumeBoostFactor 必须同时等于所选值（四舍五入到一位小数）。
+
+**Validates: Requirements 10.3**
+
+### Property 7: 音量增强倍数初始化
+
+*For any* 可能的 AVQueueHelperDB 初始状态，经过 LoadSavedSettings 后：若 DB 中存在 volumeBoostFactor 字段，则 CONFIG.VOLUME_BOOST_FACTOR 等于该已保存值；若 DB 中不存在该字段，则 CONFIG.VOLUME_BOOST_FACTOR 等于默认值 1.5 且 AVQueueHelperDB.volumeBoostFactor 被设为 1.5。
+
+**Validates: Requirements 10.4, 10.5**
+
+## Error Handling
 
 | 场景 | 处理方式 |
 |------|---------|
-| AVQueueHelperDB 为 nil | 创建空表并用 DEFAULTS 填充所有字段 |
+| AVQueueHelperDB 为 nil | 创建空表并用 DEFAULTS 填充所有字段（含 volumeBoostFactor） |
 | AVQueueHelperDB 缺少部分字段 | 仅填充缺失字段，保留已有值 |
 | 快捷键与内置绑定冲突 | WARN 提示冲突动作名称，放弃绑定，保持旧设置 |
 | 快捷键绑定到插件自身按钮 | 视为无冲突，允许绑定 |
 | 捕获模式中按下 ESC | 退出捕获模式，不更改绑定，不传播按键（面板不关闭） |
 | 设置面板打开时流程进行中 | 面板正常显示，不影响排队流程状态 |
+| 滑块值因浮点精度偏移 | OnValueChanged 中通过 `math.floor(value * 10 + 0.5) / 10` 四舍五入到一位小数，确保存储值精确 |
 
-## 测试策略
+## Testing Strategy
 
 ### 测试方法
 
-由于 WoW Classic 插件运行在游戏客户端内，无法使用标准自动化测试框架。但设置功能的核心逻辑（默认值合并、日志级别更新）可以通过提取纯函数并在 Lua 测试环境中验证。
+由于 WoW Classic 插件运行在游戏客户端内，无法使用标准自动化测试框架。但设置功能的核心逻辑（默认值合并、日志级别更新、音量倍数更新）可以通过提取纯函数并在 Lua 测试环境中验证。
 
 #### 属性测试（Property-Based Testing）
 
@@ -277,13 +355,15 @@ local settingsState = {
 - 测试目标为提取出的纯逻辑函数（不依赖 WoW API 的部分）
 
 已实现的可测试纯函数（位于 `tests/` 目录）：
-1. **tests/load_saved_settings.lua** — `LoadSavedSettings(db)` 合并默认值逻辑（Property 1）
+1. **tests/load_saved_settings.lua** — `LoadSavedSettings(db)` 合并默认值逻辑（Property 1, Property 7）
 2. **tests/apply_log_level.lua** — `ApplyLogLevel(level, config, db)` 日志级别更新逻辑（Property 2）
 3. **tests/apply_log_level_spec.lua** — Property 2 的 busted 测试用例（已通过）
 
 待实现：
 4. **ApplyKeybind(newKey, oldKey, config, db)** — 快捷键绑定逻辑（Property 3，需 mock SetBinding/SetBindingClick）
 5. **CheckKeybindConflict(key, currentKeybind, ownButtons)** — 冲突检测逻辑（Property 4，需 mock GetBindingAction）
+6. **FormatVolumeBoostLabel(value)** — 音量倍数标签格式化逻辑（Property 5，纯函数 `string.format("%.1f", value)`）
+7. **ApplyVolumeBoostFactor(value, config, db)** — 音量倍数更新逻辑（Property 6，类似 ApplyLogLevel 模式）
 
 #### 手动功能测试
 
@@ -297,3 +377,8 @@ local settingsState = {
 - 冲突按键被正确拒绝并显示警告（插件自身按钮除外）
 - ESC 退出捕获模式但不关闭面板
 - 删除 SavedVariables 文件后重新登录恢复默认值
+- Volume Boost Slider 显示在设置面板中，范围 1.0-2.0
+- 拖动滑块时数值标签实时更新（一位小数）
+- 更改滑块值后 `/reload` 仍保留设置
+- 面板重新打开时滑块反映当前 CONFIG.VOLUME_BOOST_FACTOR 值
+- 删除 SavedVariables 后重新登录，滑块默认值为 1.5

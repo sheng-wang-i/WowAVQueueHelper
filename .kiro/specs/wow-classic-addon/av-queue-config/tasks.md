@@ -1,6 +1,6 @@
-# 实施计划：设置界面面板
+# Implementation Plan: 设置界面面板
 
-## 概述
+## Overview
 
 为 AVQueueHelper 插件添加设置界面面板功能，包括 SavedVariables 持久化、`/avq` 斜杠命令、日志级别下拉菜单和快捷键绑定输入框。核心逻辑和 SavedVariables 加载在 `AVQueueHelper.lua` 中完成，设置面板 UI 代码独立放置在 `ConfigPanel.lua` 中，通过 `AVQueueHelper_Shared` 全局表共享状态。`AVQueueHelper.toc` 中按顺序列出两个 Lua 文件。
 
@@ -100,10 +100,68 @@
   - Ensure all tests pass, ask the user if questions arise.
   - 验证：/avq 切换面板、日志级别下拉菜单工作、快捷键绑定捕获和冲突检测正常、SavedVariables 在 /reload 后保留
 
+- [x] 7. 实现 Volume Boost Slider 滑块控件
+  - [x] 7.1 在 AVQueueHelper.lua 中将 volumeBoostFactor 添加到 DEFAULTS 表并在 LoadSavedSettings 中加载
+    - 在 DEFAULTS 表中添加 `volumeBoostFactor = 1.5`
+    - 在 LoadSavedSettings 函数中添加 `CONFIG.VOLUME_BOOST_FACTOR = AVQueueHelperDB.volumeBoostFactor`
+    - 确保 DEFAULTS 遍历逻辑自动处理缺失字段的默认值填充
+    - _Requirements: 10.4, 10.5_
+
+  - [x] 7.2 在 ConfigPanel.lua 中创建 Volume Boost Slider UI 控件
+    - 在快捷键绑定按钮下方添加 "Volume Boost" 标签（FontString, GameFontNormal）
+    - 使用 `CreateFrame("Slider", "AVQueueHelperVolumeBoostSlider", panel, "OptionsSliderTemplate")` 创建滑块
+    - 设置 `SetMinMaxValues(1.0, 2.0)`、`SetValueStep(0.1)`、`SetObeyStepOnDrag(true)`
+    - 设置 Low/High 标签文本为 "1.0" 和 "2.0"
+    - 创建当前值标签（FontString, GameFontHighlightSmall），显示 `string.format("%.1f", CONFIG.VOLUME_BOOST_FACTOR)`
+    - 初始化滑块值为 `CONFIG.VOLUME_BOOST_FACTOR`
+    - 增大面板高度以容纳新控件（SetSize 调整）
+    - _Requirements: 10.1, 10.2_
+
+  - [x] 7.3 在 ConfigPanel.lua 中实现 Volume Boost Slider 的 OnValueChanged 和 OnShow 同步
+    - 设置 `OnValueChanged` 处理器：四舍五入到一位小数（`math.floor(value * 10 + 0.5) / 10`），更新 `CONFIG.VOLUME_BOOST_FACTOR`，保存到 `AVQueueHelperDB.volumeBoostFactor`，更新数值标签文本
+    - 在面板 OnShow 处理器中追加：`volumeBoostSlider:SetValue(CONFIG.VOLUME_BOOST_FACTOR)` 和更新数值标签
+    - _Requirements: 10.3, 10.6_
+
+  - [ ]* 7.4 编写属性测试：音量增强倍数数值标签格式
+    - **Property 5: 音量增强倍数数值标签格式**
+    - 对任意有效滑块值（1.0 到 2.0，步进 0.1），验证 `string.format("%.1f", value)` 恰好包含一位小数且数值与输入一致
+    - 在 `tests/` 目录创建 `format_volume_boost_label.lua` 纯函数和对应的 `_spec.lua` 测试文件
+    - **Validates: Requirements 10.2**
+
+  - [ ]* 7.5 编写属性测试：音量增强倍数更新一致性
+    - **Property 6: 音量增强倍数更新一致性**
+    - 对任意有效滑块值（1.0 到 2.0，步进 0.1），验证更改后 CONFIG.VOLUME_BOOST_FACTOR 和 AVQueueHelperDB.volumeBoostFactor 同时等于所选值（四舍五入到一位小数）
+    - 在 `tests/` 目录创建 `apply_volume_boost_factor.lua` 纯函数和对应的 `_spec.lua` 测试文件
+    - **Validates: Requirements 10.3**
+
+  - [ ]* 7.6 编写属性测试：音量增强倍数初始化
+    - **Property 7: 音量增强倍数初始化**
+    - 对任意可能的 AVQueueHelperDB 初始状态，验证 LoadSavedSettings 后：若 DB 中存在 volumeBoostFactor 则 CONFIG 使用已保存值；若不存在则使用默认值 1.5
+    - 扩展 `tests/load_saved_settings.lua` 中的测试覆盖 volumeBoostFactor 字段
+    - **Validates: Requirements 10.4, 10.5**
+
+- [ ] 8. 检查点 — 确保 Volume Boost Slider 功能正确集成
+  - Ensure all tests pass, ask the user if questions arise.
+  - 验证：滑块显示在设置面板中、范围 1.0-2.0、拖动时数值标签实时更新、/reload 后设置保留、面板重新打开时滑块反映当前值
+
 ## Notes
 
 - 标记 `*` 的任务为可选，可跳过以加快 MVP 进度
-- 文件职责分离：`AVQueueHelper.lua` 负责核心逻辑、SavedVariables 加载和 `AVQueueHelper_Shared` 全局表暴露；`ConfigPanel.lua` 负责设置面板 UI、日志级别下拉菜单、快捷键捕获按钮和 `/avq` 斜杠命令
+- 文件职责分离：`AVQueueHelper.lua` 负责核心逻辑、SavedVariables 加载和 `AVQueueHelper_Shared` 全局表暴露；`ConfigPanel.lua` 负责设置面板 UI、日志级别下拉菜单、快捷键捕获按钮、Volume Boost Slider 和 `/avq` 斜杠命令
 - `AVQueueHelper.toc` 按顺序列出 `AVQueueHelper.lua`（先加载）和 `ConfigPanel.lua`（后加载，依赖 Shared 表）
 - 属性测试需要提取纯函数并使用 busted 测试框架在游戏外验证
 - 每个任务引用具体需求条目以确保可追溯性
+- Task 7.1 中 DEFAULTS 和 LoadSavedSettings 的修改是增量添加，不影响已有的 logLevel 和 keybind 字段处理
+
+## Task Dependency Graph
+
+```json
+{
+  "waves": [
+    { "id": 0, "tasks": ["7.1"] },
+    { "id": 1, "tasks": ["7.2"] },
+    { "id": 2, "tasks": ["7.3", "7.6"] },
+    { "id": 3, "tasks": ["7.4", "7.5"] }
+  ]
+}
+```

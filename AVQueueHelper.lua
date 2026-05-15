@@ -47,8 +47,9 @@ AVQueueHelper_Shared.CONFIG = CONFIG
 AVQueueHelper_Shared.STATE = STATE
 
 local DEFAULTS = {
-    logLevel = LOG_LEVEL.INFO,
-    keybind  = "F12",
+    logLevel          = LOG_LEVEL.INFO,
+    keybind           = "F12",
+    volumeBoostFactor = 1.5,
 }
 
 local function LoadSavedSettings()
@@ -60,8 +61,9 @@ local function LoadSavedSettings()
             AVQueueHelperDB[k] = v
         end
     end
-    CONFIG.LOG_LEVEL = AVQueueHelperDB.logLevel
-    CONFIG.KEYBIND   = AVQueueHelperDB.keybind
+    CONFIG.LOG_LEVEL            = AVQueueHelperDB.logLevel
+    CONFIG.KEYBIND              = AVQueueHelperDB.keybind
+    CONFIG.VOLUME_BOOST_FACTOR  = AVQueueHelperDB.volumeBoostFactor
 end
 
 -- ============================================================

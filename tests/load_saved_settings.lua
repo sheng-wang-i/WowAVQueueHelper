@@ -11,8 +11,9 @@ M.LOG_LEVEL = {
 }
 
 M.DEFAULTS = {
-    logLevel = M.LOG_LEVEL.INFO,
-    keybind  = "F12",
+    logLevel          = M.LOG_LEVEL.INFO,
+    keybind           = "F12",
+    volumeBoostFactor = 1.5,
 }
 
 --- Pure-function version of LoadSavedSettings.
@@ -29,8 +30,9 @@ function M.LoadSavedSettings(db)
         end
     end
     local config = {
-        LOG_LEVEL = db.logLevel,
-        KEYBIND   = db.keybind,
+        LOG_LEVEL            = db.logLevel,
+        KEYBIND              = db.keybind,
+        VOLUME_BOOST_FACTOR  = db.volumeBoostFactor,
     }
     return db, config
 end

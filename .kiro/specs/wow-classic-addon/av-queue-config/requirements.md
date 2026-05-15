@@ -9,6 +9,7 @@
 - **Settings_Panel**: 通过 WoW 内置 `CreateFrame` 创建的设置界面面板，允许玩家在游戏内配置插件参数
 - **SavedVariables**: WoW 客户端在角色登出时自动持久化到磁盘的 Lua 表，用于跨会话保存插件设置数据
 - **AVQueueHelperDB**: 插件使用的 SavedVariables 表名，存储玩家的自定义设置（日志级别、快捷键绑定等）
+- **Volume_Boost_Slider**: Settings_Panel 中的滑块控件，允许玩家配置警报音量增强倍数（CONFIG.VOLUME_BOOST_FACTOR）
 
 ## 需求
 
@@ -30,3 +31,17 @@
 10. 下拉菜单log level应在窗口出现时就现在目前已经选中的level
 11. THE Settings_Panel SHALL 支持鼠标拖动移动位置
 12. WHEN 玩家在快捷键捕获模式中按下 ESC, THE Addon SHALL 退出捕获模式而不更改绑定，且不关闭设置面板
+
+
+### 需求 10：音量增强倍数滑块
+
+**用户故事：** 作为玩家，我希望在设置面板中通过滑块控件调整警报音量增强倍数，以便根据个人偏好控制战场就绪提醒的音量强度，且设置在重新登录后仍然保留。
+
+#### 验收标准
+
+1. THE Settings_Panel SHALL 提供一个 Volume_Boost_Slider 滑块控件，最小值为 1.0，最大值为 2.0，默认值为 1.5
+2. THE Volume_Boost_Slider SHALL 显示当前数值标签，精度为小数点后一位（如 "1.5"）
+3. WHEN 玩家拖动 Volume_Boost_Slider 改变数值, THE Addon SHALL 立即更新 CONFIG.VOLUME_BOOST_FACTOR 为滑块当前值，并将新值保存到 AVQueueHelperDB
+4. WHEN 玩家登录游戏且 AVQueueHelperDB 中存在已保存的 volumeBoostFactor 设置, THE Addon SHALL 使用已保存的值初始化 CONFIG.VOLUME_BOOST_FACTOR（而非默认 1.5）
+5. IF AVQueueHelperDB 中不存在 volumeBoostFactor 字段, THEN THE Addon SHALL 使用默认值 1.5 初始化该字段
+6. WHEN Settings_Panel 显示时, THE Volume_Boost_Slider SHALL 反映 CONFIG.VOLUME_BOOST_FACTOR 的当前值

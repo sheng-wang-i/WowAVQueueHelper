@@ -36,3 +36,7 @@ To "install" during development, copy or symlink the `AVQueueHelper/` folder int
 ```
 
 Reload in-game with `/reload` to pick up changes.
+
+## Principle for new feature
+- When new feature is added, try to keep the orignial existing requirement not changed if no conflicts, add new part to reqirement, design and tasks.
+- When update requirement, design or tasks files, don't try to change the existing parts from English to Chinese or from Chinese to English
